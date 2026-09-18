@@ -6,6 +6,7 @@ use Keel\App\Models\WebhookEvent;
 use Keel\App\Services\BillingService;
 use Keel\App\Services\CheckoutService;
 use Keel\App\Services\MembershipService;
+use Keel\App\Services\Payments\PaymentWebhooks;
 use Keel\Core\Controller;
 use Keel\Core\Database;
 use Keel\Core\Env;
@@ -14,6 +15,7 @@ use Keel\Core\Response;
 use Stripe\Event;
 use Stripe\Exception\SignatureVerificationException;
 use Stripe\PaymentIntent;
+use Stripe\StripeObject;
 use Stripe\Subscription;
 use Stripe\Webhook;
 
@@ -35,17 +37,40 @@ use Stripe\Webhook;
  *      follows is allowed to try again rather than being told it is a duplicate
  *      of something that never happened.
  *
- * This phase handles two things. payment_intent.amount_capturable_updated is
- * where an order is born: the customer's card is now holding the authorization,
- * which is the first moment anything is true enough to write down, and it is
- * deliberately not the client redirect — a closed tab must not cost somebody
- * their dinner. customer.subscription.* keeps the membership table honest.
+ * payment_intent.amount_capturable_updated is where an order is born: the
+ * customer's card is now holding the authorization, which is the first moment
+ * anything is true enough to write down, and it is deliberately not the client
+ * redirect — a closed tab must not cost somebody their dinner.
+ * customer.subscription.* keeps the membership table honest. PAYMENT_EVENTS
+ * covers the four ways an order's money can change without this application
+ * having asked.
  *
  * Everything else still goes to Keel's BillingService, which owns the starter's
  * own subscriptions and is not FairPlate's business.
  */
 class StripeController extends Controller
 {
+    /**
+     * The events FairPlate's money handling reacts to, and what handles each.
+     *
+     * A table rather than a chain of ifs, because the list is the interesting
+     * part: these four are exactly the ways the truth about an order's money
+     * can change without this application having asked for it, and anything
+     * added here should have to justify itself against that sentence.
+     *
+     * @var array<string, string>
+     */
+    private const PAYMENT_EVENTS = [
+        // A hold released by something other than our own rejection.
+        'payment_intent.canceled' => 'paymentIntentCanceled',
+        // Money given back, including from the Stripe dashboard.
+        'charge.refunded' => 'chargeRefunded',
+        // A restaurant or driver Stripe will no longer pay out to, or will again.
+        'account.updated' => 'accountUpdated',
+        // A transfer pulled back, by us or by a dispute.
+        'transfer.reversed' => 'transferReversed',
+    ];
+
     public function handle(Request $request): never
     {
         $payload = $request->rawBody();
@@ -106,6 +131,13 @@ class StripeController extends Controller
             return;
         }
 
+        if (isset(self::PAYMENT_EVENTS[$type])) {
+            $method = self::PAYMENT_EVENTS[$type];
+            (new PaymentWebhooks())->$method($this->asArray($object));
+
+            return;
+        }
+
         if (in_array($type, [
             'customer.subscription.created',
             'customer.subscription.updated',
@@ -143,6 +175,25 @@ class StripeController extends Controller
         }
 
         (new BillingService())->syncSubscriptionFromWebhook($event);
+    }
+
+    /**
+     * A Stripe object as the plain array the payment handlers read.
+     *
+     * They work from arrays rather than typed objects because the four events
+     * they answer arrive as four different classes, and the handlers want the
+     * same two or three keys out of each. toArray() is Stripe's own recursive
+     * conversion, so a nested refunds list or requirements array survives it.
+     *
+     * @return array<string, mixed>
+     */
+    private function asArray(mixed $object): array
+    {
+        if ($object instanceof StripeObject) {
+            return $object->toArray();
+        }
+
+        return is_array($object) ? $object : [];
     }
 
     /**

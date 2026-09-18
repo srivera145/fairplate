@@ -6,7 +6,10 @@ use Keel\App\Models\DriverLocation;
 use Keel\App\Models\Order;
 use Keel\App\Models\OrderItem;
 use Keel\App\Models\OrderPriceBreakdown;
+use Keel\App\Models\Refund;
 use Keel\App\Models\Restaurant;
+use Keel\App\Models\TipAdjustment;
+use Keel\App\Services\Payments\PaymentService;
 use Keel\App\Services\Pricing\Breakdown;
 use Keel\Core\Env;
 use Keel\Core\Request;
@@ -79,6 +82,7 @@ class OrdersController extends CustomerController
         $this->view('app.order', array_merge(
             $this->shell('orders', 'Order #' . (int) $order['id']),
             $this->trackingData($order),
+            $this->receiptData($order),
             [
                 'items' => $this->itemsWithOptions((int) $order['id']),
                 'mapsKey' => trim((string) Env::get('GOOGLE_MAPS_KEY', '')),
@@ -197,6 +201,42 @@ class OrdersController extends CustomerController
             'finalCents' => $final === null ? null : (int) $final['total_cents'],
             'authorizedCents' => $order['authorized_cents'] === null ? null : (int) $order['authorized_cents'],
             'address' => Order::addressSnapshot($order),
+        ];
+    }
+
+    /**
+     * Everything the receipt shows beyond the charge lines.
+     *
+     * Three things happen to an order's money after the capture and a customer
+     * is entitled to see all of them: a tip they raised, money they were given
+     * back, and what the two add up to against what was charged. They are read
+     * from their own tables rather than folded into the breakdown, because the
+     * breakdown is what was charged at delivery and rewriting it afterwards
+     * would make a receipt that no longer matches the card statement.
+     *
+     * @return array<string, mixed>
+     */
+    private function receiptData(array $order): array
+    {
+        $orderId = (int) $order['id'];
+        $final = OrderPriceBreakdown::forStage($orderId, OrderPriceBreakdown::STAGE_FINAL);
+        $tipAdjustments = TipAdjustment::settledForOrder($orderId);
+        $refunds = Refund::forOrder($orderId);
+
+        $tipTotal = 0;
+
+        foreach ($tipAdjustments as $adjustment) {
+            $tipTotal += (int) $adjustment['charge_cents'];
+        }
+
+        return [
+            'finalBreakdown' => $final === null ? null : Breakdown::fromRow($final),
+            'tipAdjustments' => $tipAdjustments,
+            'tipAdjustmentChargedCents' => $tipTotal,
+            'refunds' => $refunds,
+            'refundedCents' => Refund::totalForOrderCents($orderId),
+            'capturedCents' => $order['captured_cents'] === null ? null : (int) $order['captured_cents'],
+            'tipWindow' => (new PaymentService())->tipWindow($order),
         ];
     }
 

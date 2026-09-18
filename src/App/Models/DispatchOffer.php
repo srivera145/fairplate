@@ -9,8 +9,8 @@ class DispatchOffer extends Model
     protected const TABLE = 'dispatch_offers';
 
     protected const COLUMNS = [
-        'order_id', 'driver_id', 'round', 'offered_at', 'expires_at',
-        'response', 'responded_at',
+        'order_id', 'driver_id', 'round', 'guaranteed_cents', 'offered_at',
+        'expires_at', 'response', 'responded_at',
     ];
 
     public const RESPONSE_PENDING = 'pending';

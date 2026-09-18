@@ -184,7 +184,17 @@ class CustomerOrderTrackingFeatureTest extends TestCase
         );
     }
 
-    public function testADeliveredOrderSaysItsFinalTotalIsStillToCome(): void
+    /**
+     * A receipt says "charged" only once something was charged.
+     *
+     * The two are written a moment apart — delivery prices the order, then the
+     * capture takes it — and the gap is real: a capture that failed leaves a
+     * delivered order with a final breakdown and nothing taken. Until
+     * captured_cents exists the page shows the hold and says so, because
+     * showing an authorization under the word "Charged" would be a lie about
+     * somebody's card.
+     */
+    public function testADeliveredOrderShowsTheHoldUntilTheCaptureLands(): void
     {
         $shop = $this->createOrderableRestaurant();
         $customer = $this->actingAsCustomer();
@@ -196,9 +206,11 @@ class CustomerOrderTrackingFeatureTest extends TestCase
         $body = $this->get('/app/orders/' . $orderId)->body;
 
         self::assertStringContainsString('Delivered', $body);
-        self::assertStringContainsString('The final total is settled when the capture lands', $body);
+        self::assertStringContainsString('What is held', $body);
+        self::assertStringContainsString('The final charge lands in a moment', $body);
+        self::assertStringNotContainsString('Receipt', $body);
 
-        // And once a final breakdown exists, it is the number shown.
+        // The delivery prices it, and the capture takes exactly that.
         OrderPriceBreakdown::create([
             'order_id' => $orderId,
             'stage' => OrderPriceBreakdown::STAGE_FINAL,
@@ -212,12 +224,13 @@ class CustomerOrderTrackingFeatureTest extends TestCase
             'total_cents' => 1864,
             'settings_snapshot' => (string) json_encode(['processing_pct' => '0.029', 'processing_fixed_cents' => 30]),
         ]);
+        Order::update($orderId, ['captured_cents' => 1864]);
 
         $settled = $this->get('/app/orders/' . $orderId)->body;
 
         self::assertStringContainsString('Receipt', $settled);
         self::assertStringContainsString('$18.64', $settled);
-        self::assertStringNotContainsString('The final total is settled when the capture lands', $settled);
+        self::assertStringNotContainsString('The final charge lands in a moment', $settled);
     }
 
     public function testOrderHistoryListsOnlyThisCustomersOrders(): void

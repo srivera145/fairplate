@@ -8,6 +8,7 @@ use Keel\App\Controllers\App\CheckoutController;
 use Keel\App\Controllers\App\MembershipController;
 use Keel\App\Controllers\App\MenuController as AppMenuController;
 use Keel\App\Controllers\App\OrdersController as AppOrdersController;
+use Keel\App\Controllers\App\TipController;
 use Keel\App\Controllers\AuthController;
 use Keel\App\Controllers\Drive\DeliveryController as DriveDeliveryController;
 use Keel\App\Controllers\Drive\EarningsController as DriveEarningsController;
@@ -163,6 +164,7 @@ $router->group(['middleware' => [CsrfMiddleware::class]], function ($router) use
         $router->get('/orders/{id}/status', [AppOrdersController::class, 'status']);
         $router->get('/orders/{id}/driver-location', [AppOrdersController::class, 'driverLocation']);
         $router->post('/orders/{id}/reorder', [AppOrdersController::class, 'reorder']);
+        $router->post('/orders/{id}/tip', [TipController::class, 'store']);
 
         $router->get('/membership', [MembershipController::class, 'index']);
         $router->post('/membership/subscribe', [MembershipController::class, 'subscribe']);
@@ -263,6 +265,8 @@ $router->group(['middleware' => [CsrfMiddleware::class]], function ($router) use
     $router->group(['prefix' => '/admin', 'middleware' => [RequireAdmin::class]], function ($router) {
         $router->get('', [AdminController::class, 'index']);
         $router->post('/drivers/{id}/approve', [AdminController::class, 'approveDriver']);
+        $router->post('/orders/{id}/refund', [AdminController::class, 'refundOrder']);
+        $router->post('/payouts/{id}/retry', [AdminController::class, 'retryPayout']);
     });
 });
 

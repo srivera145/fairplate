@@ -6,15 +6,14 @@
  * the endpoint behind it enforces that independently — the page not asking is
  * a courtesy, the server refusing is the rule.
  *
- * The total says "held" until there is a final breakdown to say "charged". The
- * capture lands in phase 6; until then this page is honest about the difference
- * rather than showing an authorization as if it were a receipt.
+ * What the order cost — held, charged, tipped again or refunded — is
+ * receipt.php's, required below. It is four stories that only make sense
+ * together, and keeping them in their own file is what stops this page becoming
+ * the place all four are told at once.
  */
 
 use EchoDial\Deck\Deck;
 use Keel\App\Models\Address;
-use Keel\App\Models\Order;
-use Keel\App\Models\OrderPriceBreakdown;
 use Keel\App\Services\Pricing\Money;
 use Keel\Core\Csrf;
 
@@ -24,8 +23,6 @@ require __DIR__ . '/partials/top.php';
 $items = $items ?? [];
 $escape = static fn (?string $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $orderId = (int) $order['id'];
-$status = (string) $order['status'];
-$settled = (string) ($breakdownStage ?? '') === OrderPriceBreakdown::STAGE_FINAL;
 $addressLine = Address::oneLine($address ?? []);
 ?>
 
@@ -97,45 +94,7 @@ $addressLine = Address::oneLine($address ?? []);
     </div>
 </section>
 
-<?php if (($breakdown ?? null) !== null): ?>
-<section class="card">
-    <div class="card-header">
-        <h2 class="card-title"><?= $settled ? 'Receipt' : 'What is held' ?></h2>
-    </div>
-    <div class="card-body stack stack-3">
-        <dl class="breakdown">
-            <?php foreach ($breakdown->displayLines() as $row): ?>
-            <dt><?= $escape((string) $row['label']) ?></dt>
-            <dd class="nums"><?= $escape(Money::usd((int) $row['cents'])) ?></dd>
-            <?php endforeach; ?>
-            <dt class="breakdown-total"><?= $settled ? 'Charged' : 'Held on your card' ?></dt>
-            <dd class="breakdown-total nums"><?= $escape(Money::usd((int) $breakdown->total())) ?></dd>
-        </dl>
-
-        <?php if ($status === Order::STATUS_DELIVERED): ?>
-        <?php if (($finalCents ?? null) !== null): ?>
-        <p class="text-sm">
-            Final total <strong><?= $escape(Money::usd((int) $finalCents)) ?></strong>, taken from the hold.
-        </p>
-        <?php else: ?>
-        <div class="alert alert-info">
-            <?= Deck::icon('info') ?>
-            <p class="alert-body">
-                Delivered. The final total is settled when the capture lands — that arrives with the
-                payments work in the next phase. Until then the figure above is what is held, and it is
-                the most this order can ever cost.
-            </p>
-        </div>
-        <?php endif; ?>
-        <?php elseif (!$settled): ?>
-        <p class="text-sm text-muted">
-            Nothing is taken until the food arrives. The hold is the most this order can cost;
-            the charge is usually less.
-        </p>
-        <?php endif; ?>
-    </div>
-</section>
-<?php endif; ?>
+<?php require __DIR__ . '/receipt.php'; ?>
 
 <form method="POST" action="/app/orders/<?= $orderId ?>/reorder" class="form-actions">
     <?= Csrf::field() ?>

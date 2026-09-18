@@ -12,7 +12,8 @@ class Order extends Model
         'driver_assigned_at', 'driver_eta_at', 'arrived_at_restaurant_at', 'picked_up_at',
         'arrived_at_customer_at', 'delivered_at', 'cancelled_at', 'needs_attention_at',
         'authorized_cents', 'captured_cents', 'stripe_payment_intent_id',
-        'stripe_fee_cents', 'is_member_order', 'cancel_reason', 'reject_reason',
+        'stripe_charge_id', 'stripe_fee_cents', 'is_member_order', 'cancel_reason',
+        'reject_reason',
         'delivery_photo',
     ];
 
@@ -53,6 +54,79 @@ class Order extends Model
     public static function forCustomer(int $customerId): array
     {
         return self::allBy('customer_id', $customerId, 'created_at DESC, id DESC');
+    }
+
+    /**
+     * The order a Stripe object belongs to, for webhooks that arrive carrying
+     * only an id.
+     */
+    public static function findByPaymentIntent(string $paymentIntentId): ?array
+    {
+        return trim($paymentIntentId) === '' ? null : self::firstBy('stripe_payment_intent_id', $paymentIntentId);
+    }
+
+    public static function findByCharge(string $chargeId): ?array
+    {
+        return trim($chargeId) === '' ? null : self::firstBy('stripe_charge_id', $chargeId);
+    }
+
+    /**
+     * Orders still holding an authorization older than $days.
+     *
+     * Stripe releases an uncaptured authorization at seven days and the card
+     * issuer may drop it sooner, so an order that has sat here for six is one
+     * nobody is going to be able to charge tomorrow. Rejected and cancelled
+     * orders are excluded: those releases are deliberate, and their intents are
+     * cancelled rather than expiring.
+     */
+    public static function staleAuthorizations(int $days): array
+    {
+        return self::query(
+            'SELECT * FROM orders
+             WHERE stripe_payment_intent_id IS NOT NULL
+               AND captured_cents IS NULL
+               AND status NOT IN (?, ?)
+               AND placed_at IS NOT NULL
+               AND placed_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
+             ORDER BY placed_at ASC, id ASC',
+            [self::STATUS_CANCELLED, self::STATUS_REJECTED, $days]
+        );
+    }
+
+    /** An order whose money has already been taken. */
+    public static function isCaptured(array $order): bool
+    {
+        return ($order['captured_cents'] ?? null) !== null;
+    }
+
+    /**
+     * Recently captured orders, with what has already gone back, for the admin
+     * refund screen.
+     *
+     * The refunded total is joined rather than fetched per row because the
+     * screen's whole job is to show what is left refundable, and computing that
+     * one order at a time is how a screen ends up offering a refund somebody
+     * has already had.
+     */
+    public static function recentlyCaptured(int $limit = 25): array
+    {
+        $limit = max(1, min(100, $limit));
+
+        return self::query(
+            'SELECT o.*, r.name AS restaurant_name, u.name AS customer_name,
+                    COALESCE(f.refunded_cents, 0) AS refunded_cents
+             FROM orders o
+             INNER JOIN restaurants r ON r.id = o.restaurant_id
+             INNER JOIN users u ON u.id = o.customer_id
+             LEFT JOIN (
+                 SELECT order_id, SUM(amount_cents) AS refunded_cents
+                 FROM refunds
+                 GROUP BY order_id
+             ) f ON f.order_id = o.id
+             WHERE o.captured_cents IS NOT NULL
+             ORDER BY o.delivered_at DESC, o.id DESC
+             LIMIT ' . $limit
+        );
     }
 
     public static function forRestaurant(int $restaurantId): array

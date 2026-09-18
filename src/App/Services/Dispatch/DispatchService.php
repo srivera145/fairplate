@@ -7,9 +7,12 @@ use Keel\App\Jobs\OfferTimeoutJob;
 use Keel\App\Models\DispatchOffer;
 use Keel\App\Models\Driver;
 use Keel\App\Models\Order;
+use Keel\App\Models\OrderPriceBreakdown;
 use Keel\App\Models\Restaurant;
 use Keel\App\Services\OrderLifecycle;
 use Keel\App\Services\OrderLifecycleException;
+use Keel\App\Services\Pricing\PricingException;
+use Keel\App\Services\Pricing\PricingService;
 use Keel\App\Services\Settings;
 use Keel\App\Services\ZoneService;
 use Keel\Core\Activity;
@@ -376,6 +379,11 @@ final class DispatchService
             'order_id' => $orderId,
             'driver_id' => $driverId,
             'round' => $round,
+            // What the card promises, written down at the moment it is
+            // promised. The spec says the guarantee never drops after
+            // acceptance, and PayoutService checks the transfer against this
+            // rather than recomputing the number and agreeing with itself.
+            'guaranteed_cents' => $this->guaranteedCents($orderId),
             'offered_at' => gmdate('Y-m-d H:i:s', $now),
             'expires_at' => gmdate('Y-m-d H:i:s', $now + $timeout),
         ]);
@@ -390,6 +398,31 @@ final class DispatchService
         ]);
 
         return DispatchOffer::find($offerId) ?? [];
+    }
+
+    /**
+     * The guarantee this offer card shows, from the order's frozen breakdown.
+     *
+     * Null rather than a guess when the breakdown has gone: the card itself
+     * refuses to render in that case, so there was never a promise to record,
+     * and a zero here would read like one that was kept.
+     */
+    private function guaranteedCents(int $orderId): ?int
+    {
+        $row = OrderPriceBreakdown::forStage($orderId, OrderPriceBreakdown::STAGE_AUTHORIZED)
+            ?? OrderPriceBreakdown::forStage($orderId, OrderPriceBreakdown::STAGE_ESTIMATE);
+
+        if ($row === null) {
+            return null;
+        }
+
+        try {
+            return (new PricingService())->driverOffer($row)['guaranteed_cents'];
+        } catch (PricingException $exception) {
+            error_log('[FairPlate] Offer for order ' . $orderId . ' has no guarantee: ' . $exception->getMessage());
+
+            return null;
+        }
     }
 
     /**

@@ -9,7 +9,7 @@ class Restaurant extends Model
     protected const COLUMNS = [
         'name', 'slug', 'phone', 'line1', 'line2', 'city', 'state', 'zip',
         'lat', 'lng', 'delivery_zone_id', 'tax_rate', 'hours', 'paused',
-        'paused_until', 'status', 'stripe_account_id', 'stripe_customer_id',
+        'paused_until', 'status', 'stripe_account_id', 'payouts_enabled', 'stripe_customer_id',
         'founding_discount_pct', 'custom_fee_cents', 'logo', 'cover',
     ];
 
@@ -23,6 +23,15 @@ class Restaurant extends Model
     public static function findBySlug(string $slug): ?array
     {
         return self::firstBy('slug', $slug);
+    }
+
+    /**
+     * The restaurant behind a connected account, for webhooks that arrive
+     * carrying only the account id.
+     */
+    public static function findByStripeAccount(string $accountId): ?array
+    {
+        return trim($accountId) === '' ? null : self::firstBy('stripe_account_id', $accountId);
     }
 
     public static function all(): array

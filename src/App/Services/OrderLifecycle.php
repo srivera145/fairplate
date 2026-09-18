@@ -7,6 +7,9 @@ use Keel\App\Models\Order;
 use Keel\App\Models\OrderPriceBreakdown;
 use Keel\App\Services\Delivery\DeliveryProvider;
 use Keel\App\Services\Delivery\InHouseDriverProvider;
+use Keel\App\Services\Payments\AdminAlert;
+use Keel\App\Services\Payments\PaymentService;
+use Keel\App\Services\Payments\PayoutService;
 use Keel\App\Services\Pricing\Breakdown;
 use Keel\App\Services\Pricing\PricingException;
 use Keel\App\Services\Pricing\PricingService;
@@ -28,9 +31,12 @@ use Keel\Core\Database;
  * The spec allows ready and driver_assigned in either order, so both directions
  * appear and arrived_at_restaurant is reachable from either.
  *
- * Money is not moved here. Phase 6 owns the Stripe calls; the two hooks at the
- * bottom mark exactly where they attach, so that when they land the release and
- * the capture happen on the same transition that changed the status.
+ * Money moves on the transition that earned it, not on a screen somebody has to
+ * remember to visit. The two hooks at the bottom are where that happens: a
+ * delivery captures and pays out, and a rejection or a cancellation gives the
+ * money back. Neither of them throws — the status has already changed and the
+ * customer's screen already agrees, so a Stripe outage raises an alert rather
+ * than rolling back a delivery that really did happen.
  */
 class OrderLifecycle
 {
@@ -179,10 +185,9 @@ class OrderLifecycle
     /**
      * The kitchen turns the order down.
      *
-     * Phase 6 wires the authorization release onto this transition. Until then
-     * the status and the reason are recorded and the customer's money is
-     * untouched — the safe half to ship first, because an order left authorized
-     * is recoverable and a double release is not.
+     * The release hangs off this transition rather than off a screen, so the
+     * hold on somebody's card comes down at the moment the kitchen says no
+     * rather than whenever the next person looks.
      */
     public static function reject(int $orderId, string $reasonKey, string $note = ''): array
     {
@@ -203,6 +208,30 @@ class OrderLifecycle
 
         // Whatever is still counting down on a driver's screen is for food that
         // is not being cooked. Take the card down before releasing the money.
+        (new InHouseDriverProvider())->cancel($order, $reason);
+
+        self::releaseAuthorization($order);
+
+        return $order;
+    }
+
+    /**
+     * The order is called off before the food is in a car.
+     *
+     * The rule book already refuses a cancellation after pickup — picked_up
+     * goes only to arrived_at_customer, delivered or needs_attention — so
+     * "before pickup" is enforced by TRANSITIONS rather than re-checked here.
+     * What this adds on top of a bare transition is the same two endings a
+     * rejection has: the courier's card comes down, and the money goes back.
+     */
+    public static function cancel(int $orderId, string $reason = ''): array
+    {
+        $reason = trim($reason);
+
+        $order = self::transition($orderId, Order::STATUS_CANCELLED, [
+            'cancel_reason' => $reason === '' ? null : $reason,
+        ]);
+
         (new InHouseDriverProvider())->cancel($order, $reason);
 
         self::releaseAuthorization($order);
@@ -423,23 +452,106 @@ class OrderLifecycle
     }
 
     /**
-     * Phase 6: release the payment authorization and transfer nothing.
+     * The order is called off. Give the money back, whichever way that means.
      *
-     * Called on rejection and on a cancellation before pickup. A no-op rather
-     * than an exception, so the kitchen board is usable end to end while the
-     * money half is still being built.
+     * Called on rejection and on a cancellation. Which of the two things it
+     * does is decided by the order, not the caller: an order that has never
+     * been captured has a hold to release and nobody has been charged
+     * anything; one that has been captured needs a refund, and the driver's
+     * transfer stands either way because they drove.
+     *
+     * Nothing here throws. This runs on a transition that has already happened
+     * — the kitchen's tablet has already said "rejected" and the customer's
+     * screen already agrees — and a Stripe outage must not roll that back or
+     * leave the kitchen unable to turn down the next one. A release that fails
+     * is an authorization that expires on its own in a week, and
+     * AuthorizationExpiryCheckJob finds it long before then.
      */
     public static function releaseAuthorization(array $order): void
     {
-        // Stubbed until phase 6 wires Stripe. See docs/FAIRPLATE.md, "Refunds".
+        $orderId = (int) $order['id'];
+
+        try {
+            $payments = new PaymentService();
+
+            if (!Order::isCaptured($order)) {
+                $payments->release($order);
+
+                return;
+            }
+
+            // Captured already: the customer is owed their money back, and the
+            // platform absorbs it unless an admin later says it was the
+            // restaurant's fault.
+            $payments->refund(
+                $order,
+                (int) $order['captured_cents'],
+                trim((string) ($order['reject_reason'] ?? $order['cancel_reason'] ?? 'Order cancelled')),
+                false
+            );
+        } catch (\Throwable $exception) {
+            AdminAlert::raise('order.release_failed', sprintf(
+                'Order %d could not have its payment released: %s',
+                $orderId,
+                $exception->getMessage()
+            ), [
+                'order_id' => $orderId,
+                'status' => (string) ($order['status'] ?? ''),
+                'captured_cents' => $order['captured_cents'] ?? null,
+            ]);
+        }
     }
 
     /**
-     * Phase 6: capture the authorization and fan out the transfers.
+     * The food is handed over. Take the money, then pay everybody.
+     *
+     * The capture comes first and the transfers second, always. A transfer
+     * names the charge it comes out of, so there is nothing to transfer from
+     * until the capture exists; doing it the other way round would draw on the
+     * platform's own balance, which is exactly the float this arrangement is
+     * designed not to need.
+     *
+     * The transfers are queued rather than sent. A driver handing over a bag on
+     * a pavement should not be waiting on two Stripe round trips, and a
+     * transfer that fails deserves the backoff and the alerting that
+     * TransferPayoutJob has rather than whatever a controller would do with the
+     * exception.
+     *
+     * Failures do not throw, for the same reason the release does not: the
+     * order is already delivered and nothing about that is going to be undone.
+     * An uncaptured delivered order is exactly what the hourly authorization
+     * check is for.
      */
     public static function captureAndTransfer(array $order): void
     {
-        // Stubbed until phase 6 wires Stripe. See docs/FAIRPLATE.md, "Money flow".
+        $orderId = (int) $order['id'];
+
+        try {
+            (new PaymentService())->capture($order);
+        } catch (\Throwable $exception) {
+            AdminAlert::raise('order.capture_failed', sprintf(
+                'Order %d was delivered but could not be captured: %s',
+                $orderId,
+                $exception->getMessage()
+            ), [
+                'order_id' => $orderId,
+                'authorized_cents' => $order['authorized_cents'] ?? null,
+            ]);
+
+            return;
+        }
+
+        try {
+            // Re-read: the capture has just written the charge id the transfers
+            // will name as their source.
+            (new PayoutService())->queueForOrder(Order::find($orderId) ?? $order);
+        } catch (\Throwable $exception) {
+            AdminAlert::raise('order.payout_queue_failed', sprintf(
+                'Order %d was captured but its payouts could not be queued: %s',
+                $orderId,
+                $exception->getMessage()
+            ), ['order_id' => $orderId]);
+        }
     }
 
     /**

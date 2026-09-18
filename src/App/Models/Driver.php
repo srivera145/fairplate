@@ -9,7 +9,7 @@ class Driver extends Model
     protected const COLUMNS = [
         'user_id', 'vehicle_make', 'vehicle_model', 'vehicle_color', 'plate',
         'approved', 'online', 'idle', 'last_lat', 'last_lng', 'last_seen_at',
-        'stripe_account_id',
+        'stripe_account_id', 'payouts_enabled',
     ];
 
     /**
@@ -25,6 +25,15 @@ class Driver extends Model
     public static function forUser(int $userId): ?array
     {
         return self::firstBy('user_id', $userId);
+    }
+
+    /**
+     * The driver behind a connected account, for webhooks that arrive carrying
+     * only the account id.
+     */
+    public static function findByStripeAccount(string $accountId): ?array
+    {
+        return trim($accountId) === '' ? null : self::firstBy('stripe_account_id', $accountId);
     }
 
     public static function all(): array

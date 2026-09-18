@@ -189,14 +189,50 @@ class StripeConnectService
         }
 
         $requirements = $account->requirements?->currently_due ?? [];
+        $payoutsEnabled = (bool) ($account->payouts_enabled ?? false);
+
+        $this->rememberPayoutsEnabled($owner, $payoutsEnabled);
 
         return [
             'connected' => true,
             'details_submitted' => (bool) ($account->details_submitted ?? false),
             'charges_enabled' => (bool) ($account->charges_enabled ?? false),
-            'payouts_enabled' => (bool) ($account->payouts_enabled ?? false),
+            'payouts_enabled' => $payoutsEnabled,
             'requirements' => array_values(array_map('strval', (array) $requirements)),
         ];
+    }
+
+    /**
+     * Writes back whether Stripe will pay this account out.
+     *
+     * account.updated is what keeps the flag current in the normal case, but a
+     * webhook that never arrived — a misconfigured endpoint, an outage — would
+     * leave the column stale forever. This is a read path, so it writes only
+     * when the answer has changed, and it costs an UPDATE the first time
+     * somebody opens their own onboarding screen after finishing.
+     *
+     * A row with no id is not persisted: status() takes anything carrying a
+     * stripe_account_id, including rows a caller assembled by hand.
+     *
+     * @param array<string, mixed> $owner
+     */
+    private function rememberPayoutsEnabled(array $owner, bool $enabled): void
+    {
+        $id = (int) ($owner['id'] ?? 0);
+
+        if ($id <= 0 || !array_key_exists('payouts_enabled', $owner)) {
+            return;
+        }
+
+        if (((int) $owner['payouts_enabled'] === 1) === $enabled) {
+            return;
+        }
+
+        // Restaurants and drivers both carry the column; which table it is comes
+        // from what else the row has rather than from the caller telling us.
+        $model = array_key_exists('slug', $owner) ? Restaurant::class : Driver::class;
+
+        $model::update($id, ['payouts_enabled' => $enabled ? 1 : 0]);
     }
 
     /**

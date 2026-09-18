@@ -46,9 +46,21 @@ trait CustomerFixtures
         ['membership_price_cents', '999', 'int'],
     ];
 
+    /**
+     * Settings the customer app reads that are not prices.
+     *
+     * The receipt asks how long a tip may still be raised for, so every
+     * customer test needs it for the same reason it needs the platform fee:
+     * Settings has no defaults on purpose, and a screen that reads a key the
+     * seeder writes has to have it.
+     */
+    protected const CUSTOMER_SETTINGS = [
+        ['tip_adjust_window_hours', '24', 'int'],
+    ];
+
     protected function seedPricingSettings(): void
     {
-        foreach (self::PRICING_SETTINGS as [$key, $value, $type]) {
+        foreach (array_merge(self::PRICING_SETTINGS, self::CUSTOMER_SETTINGS) as [$key, $value, $type]) {
             Settings::put($key, $value, $type);
         }
 
