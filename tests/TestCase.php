@@ -415,6 +415,7 @@ abstract class TestCase extends PhpUnitTestCase
             'organization_invites',
             'organizations',
             'rate_limits',
+            'route_cache',
             'subscriptions',
             // FairPlate, child rows first so the order reads in dependency order
             // even though foreign key checks are off around the truncate.
