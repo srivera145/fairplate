@@ -130,6 +130,73 @@ class RestaurantHours
         return false;
     }
 
+    /**
+     * When the kitchen next opens, or null if it never does within a week.
+     *
+     * A closed card has to say more than "closed", and the only honest way to
+     * say when is to walk the week forward looking for the first range that
+     * starts after now. Seven days is the whole cycle, so a kitchen that opens
+     * at all is found, and one that opens on no day is correctly reported as
+     * having no next opening rather than being given a made-up one.
+     */
+    public static function nextOpeningAt(mixed $hours, ?\DateTimeImmutable $at = null): ?\DateTimeImmutable
+    {
+        $hours = self::normalize($hours);
+        $zone = new \DateTimeZone(self::ZONE);
+        $local = ($at ?? new \DateTimeImmutable('now'))->setTimezone($zone);
+
+        for ($offset = 0; $offset <= 7; $offset++) {
+            $day = $local->modify("+{$offset} day");
+            $date = $day->format('Y-m-d');
+
+            if (self::isClosedOn($hours, $date)) {
+                continue;
+            }
+
+            $key = self::DAYS[((int) $day->format('N')) - 1];
+
+            foreach ($hours['days'][$key] ?? [] as $range) {
+                $opensAt = \DateTimeImmutable::createFromFormat(
+                    'Y-m-d H:i:s',
+                    $date . ' ' . $range['open'] . ':00',
+                    $zone
+                );
+
+                if ($opensAt !== false && $opensAt > $local) {
+                    return $opensAt;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * "Closed — opens at 11:00am", or "Closed — opens Monday 11:00am" when the
+     * next opening is not today.
+     */
+    public static function nextOpeningLabel(mixed $hours, ?\DateTimeImmutable $at = null): string
+    {
+        $opensAt = self::nextOpeningAt($hours, $at);
+
+        if ($opensAt === null) {
+            return 'Closed';
+        }
+
+        $local = ($at ?? new \DateTimeImmutable('now'))->setTimezone(new \DateTimeZone(self::ZONE));
+        $clock = self::clockLabel($opensAt->format('H:i'));
+
+        if ($opensAt->format('Y-m-d') === $local->format('Y-m-d')) {
+            return 'Closed — opens at ' . $clock;
+        }
+
+        if ($opensAt->format('Y-m-d') === $local->modify('+1 day')->format('Y-m-d')) {
+            return 'Closed — opens tomorrow ' . $clock;
+        }
+
+        return 'Closed — opens ' . $opensAt->format('l') . ' ' . $clock;
+    }
+
     public static function isClosedOn(array $hours, string $date): bool
     {
         foreach ($hours['closures'] ?? [] as $closure) {

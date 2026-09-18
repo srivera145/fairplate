@@ -419,6 +419,11 @@ abstract class TestCase extends PhpUnitTestCase
             'subscriptions',
             // FairPlate, child rows first so the order reads in dependency order
             // even though foreign key checks are off around the truncate.
+            'cart_item_options',
+            'cart_items',
+            'carts',
+            'checkout_intents',
+            'webhook_events',
             'order_item_options',
             'order_items',
             'order_price_breakdown',

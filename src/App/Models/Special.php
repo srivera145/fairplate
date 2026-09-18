@@ -29,6 +29,62 @@ class Special extends Model
     }
 
     /**
+     * Active specials for a whole page of restaurants, keyed by restaurant id.
+     *
+     * The browse screen shows a badge on every card that has one running, and
+     * asking per card would make a twenty-restaurant page twenty queries for a
+     * dot.
+     *
+     * @param list<int> $restaurantIds
+     * @return array<int, list<array<string, mixed>>>
+     */
+    public static function activeForRestaurants(array $restaurantIds): array
+    {
+        $restaurantIds = array_values(array_unique(array_map('intval', $restaurantIds)));
+
+        if ($restaurantIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($restaurantIds), '?'));
+
+        $rows = self::query(
+            'SELECT * FROM specials
+             WHERE active = 1 AND restaurant_id IN (' . $placeholders . ')
+             ORDER BY restaurant_id ASC, id ASC',
+            $restaurantIds
+        );
+
+        $grouped = [];
+
+        foreach ($rows as $row) {
+            $grouped[(int) $row['restaurant_id']][] = $row;
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * The ones from a list that are running at this local time.
+     *
+     * @param list<array<string, mixed>> $specials
+     * @return list<array<string, mixed>>
+     */
+    public static function runningNow(array $specials, ?\DateTimeImmutable $at = null): array
+    {
+        $local = ($at ?? new \DateTimeImmutable('now'))
+            ->setTimezone(new \DateTimeZone('America/New_York'));
+
+        $weekday = (int) $local->format('N');
+        $time = $local->format('H:i:s');
+
+        return array_values(array_filter(
+            $specials,
+            static fn (array $special): bool => self::runsAt($special, $weekday, $time)
+        ));
+    }
+
+    /**
      * True when the special runs on this ISO weekday (1 Monday - 7 Sunday) at
      * this local time. A NULL days list means every day; NULL times mean all
      * day. Display only: no pricing math happens here.

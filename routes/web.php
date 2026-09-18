@@ -1,7 +1,13 @@
 <?php
 
 use Keel\App\Controllers\AdminController;
-use Keel\App\Controllers\AppController;
+use Keel\App\Controllers\App\AddressesController;
+use Keel\App\Controllers\App\BrowseController;
+use Keel\App\Controllers\App\CartController;
+use Keel\App\Controllers\App\CheckoutController;
+use Keel\App\Controllers\App\MembershipController;
+use Keel\App\Controllers\App\MenuController as AppMenuController;
+use Keel\App\Controllers\App\OrdersController as AppOrdersController;
 use Keel\App\Controllers\AuthController;
 use Keel\App\Controllers\DriveController;
 use Keel\App\Controllers\Kitchen\ConnectController as KitchenConnectController;
@@ -27,7 +33,7 @@ use Keel\App\Controllers\RobotsController;
 use Keel\App\Controllers\SitemapController;
 use Keel\App\Controllers\SuperAdminController;
 use Keel\App\Controllers\ThemeController;
-use Keel\App\Controllers\StripeWebhookController;
+use Keel\App\Controllers\Webhooks\StripeController as StripeWebhookController;
 use Keel\App\Controllers\WelcomeController;
 use Keel\App\Middleware\AuthMiddleware;
 use Keel\App\Middleware\ApiAuthMiddleware;
@@ -118,8 +124,44 @@ $router->group(['middleware' => [CsrfMiddleware::class]], function ($router) use
 
     // The four FairPlate areas. Every route here carries a role gate; a signed-in
     // user of the wrong role gets a 403, not a redirect.
+    //
+    // The customer app. RequireCustomer answers "is this a customer"; every route
+    // carrying a record id then asks App\CustomerController whether it is *their*
+    // record, because addresses, carts and orders all live in tables shared by
+    // every customer on the platform.
     $router->group(['prefix' => '/app', 'middleware' => [RequireCustomer::class]], function ($router) {
-        $router->get('', [AppController::class, 'index']);
+        $router->get('', [BrowseController::class, 'index']);
+
+        $router->get('/addresses', [AddressesController::class, 'index']);
+        $router->post('/addresses', [AddressesController::class, 'store']);
+        $router->get('/addresses/{id}/edit', [AddressesController::class, 'edit']);
+        $router->post('/addresses/{id}', [AddressesController::class, 'update']);
+        $router->post('/addresses/{id}/delete', [AddressesController::class, 'destroy']);
+        $router->post('/addresses/{id}/default', [AddressesController::class, 'makeDefault']);
+
+        $router->get('/r/{slug}', [AppMenuController::class, 'show']);
+        $router->get('/r/{slug}/items/{id}', [AppMenuController::class, 'item']);
+
+        $router->get('/cart', [CartController::class, 'index']);
+        $router->post('/cart/items', [CartController::class, 'store']);
+        $router->post('/cart/items/{id}', [CartController::class, 'updateLine']);
+        $router->post('/cart/items/{id}/delete', [CartController::class, 'destroyLine']);
+        $router->post('/cart/clear', [CartController::class, 'clear']);
+        $router->post('/cart/address', [CartController::class, 'setAddress']);
+
+        $router->get('/checkout', [CheckoutController::class, 'index']);
+        $router->post('/checkout/quote', [CheckoutController::class, 'quote']);
+        $router->get('/checkout/complete', [CheckoutController::class, 'complete']);
+
+        $router->get('/orders', [AppOrdersController::class, 'index']);
+        $router->get('/orders/{id}', [AppOrdersController::class, 'show']);
+        $router->get('/orders/{id}/status', [AppOrdersController::class, 'status']);
+        $router->get('/orders/{id}/driver-location', [AppOrdersController::class, 'driverLocation']);
+        $router->post('/orders/{id}/reorder', [AppOrdersController::class, 'reorder']);
+
+        $router->get('/membership', [MembershipController::class, 'index']);
+        $router->post('/membership/subscribe', [MembershipController::class, 'subscribe']);
+        $router->post('/membership/portal', [MembershipController::class, 'portal']);
     });
 
     // The kitchen app. RequireRestaurantStaff answers "is this a kitchen user";

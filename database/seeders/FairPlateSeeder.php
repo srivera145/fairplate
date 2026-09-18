@@ -73,6 +73,7 @@ class FairPlateSeeder
      * Tables this seeder owns, child rows first.
      */
     private const OWNED_TABLES = [
+        'cart_item_options', 'cart_items', 'carts', 'checkout_intents',
         'order_item_options', 'order_items', 'order_price_breakdown', 'tip_adjustments',
         'payouts', 'refunds', 'dispatch_offers', 'driver_locations', 'orders',
         'specials', 'item_options', 'item_option_groups', 'menu_items', 'menu_categories',

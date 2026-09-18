@@ -113,6 +113,19 @@ final class Money
     }
 
     /**
+     * Integer cents as the string a screen shows: $12.50, -$1.00.
+     *
+     * Display, not arithmetic, but it belongs here for the same reason
+     * toDollars() does: every receipt, breakdown and card in the application
+     * formats money the same way, and the alternative is twenty views each
+     * inventing their own and one of them getting it wrong.
+     */
+    public static function usd(int $cents): string
+    {
+        return ($cents < 0 ? '-$' : '$') . self::toDollars(abs($cents));
+    }
+
+    /**
      * A percentage typed by a human as the decimal rate a column stores.
      *
      * Sales tax is 7.5% on the sign behind the counter and 0.0750 in the

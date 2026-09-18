@@ -1,0 +1,255 @@
+/* The customer app, on top of Deck.
+ *
+ * Deck already gives this application its cards, its forms, its bottom sheet
+ * and a 44px floor on every control, so this file is only what is specific to
+ * ordering food on a phone held in one hand: a menu whose category tabs stay
+ * put while you scroll, rows that stay tappable at 360px, and a cart bar that
+ * follows you down the page.
+ *
+ * Everything here is a variable Deck already defines. No colour is written as a
+ * literal, so the light and dark themes and any brand hue keep working.
+ */
+
+/* Deck's default control height is 42px and it makes up the difference for
+   buttons with a 44px pseudo-element hit area. Text fields and selects get no
+   such treatment, and on a screen where every control is touched with a thumb
+   they come up two pixels short of the floor this project sets. */
+body.app-body {
+	--control-h: 44px;
+}
+
+/* --- Chrome -------------------------------------------------------------- */
+
+.app-header {
+	padding-block: var(--space-3);
+}
+
+.app-brand {
+	font-family: var(--font-display, inherit);
+	font-size: var(--text-lg);
+	font-weight: 700;
+	color: var(--text);
+}
+
+.app-wide-nav {
+	display: none;
+}
+
+@media (min-width: 48rem) {
+	.app-wide-nav {
+		display: flex;
+	}
+}
+
+/* min-inline-size: 0 is what lets .truncate actually truncate inside a flex
+   row rather than pushing the theme switch off the screen. */
+.min-w-0 {
+	min-inline-size: 0;
+}
+
+/* Deck's sticky action bar sticks to the bottom of the scrollport, and this
+   application parks a fixed tab bar there, which is higher in the stack. Left
+   alone the pay button would sit behind the tab bar and be untappable. Lift it
+   by the tab bar's height, and put it back down at the width where Deck stops
+   drawing one. */
+body.app-body .form-actions-sticky {
+	inset-block-end: calc(var(--tap) + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 48rem) {
+	body.app-body .form-actions-sticky {
+		inset-block-end: 0;
+	}
+}
+
+/* --- Browse -------------------------------------------------------------- */
+
+.restaurant-card {
+	display: grid;
+	grid-template-columns: 4rem 1fr;
+	gap: var(--space-3);
+	align-items: center;
+	padding: var(--space-3);
+	min-block-size: var(--tap);
+	text-decoration: none;
+	color: inherit;
+}
+
+.restaurant-thumb {
+	inline-size: 4rem;
+	block-size: 4rem;
+	border-radius: var(--r-md);
+	object-fit: cover;
+	background: var(--sunken);
+	display: grid;
+	place-items: center;
+	color: var(--text-faint);
+}
+
+/* A closed restaurant is still worth showing — it just should not look like
+   the ones that can cook right now. */
+.restaurant-closed .restaurant-thumb,
+.restaurant-closed .restaurant-name {
+	opacity: 0.6;
+}
+
+.restaurant-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--text-sm);
+	color: var(--text-muted);
+}
+
+/* --- Menu ---------------------------------------------------------------- */
+
+/* The category tabs follow the page down. Sticky rather than fixed so they
+   scroll with the header above them and never cover the first item.
+
+   The inline bleed to the page gutter is Deck's — .scroller already carries the
+   negative margin and the matching padding, and adding a second pair here would
+   double it and push the strip off the side of a 360px screen. */
+.menu-tabs {
+	position: sticky;
+	inset-block-start: 0;
+	z-index: var(--z-sticky);
+	background: color-mix(in oklab, var(--bg) 92%, transparent);
+	backdrop-filter: saturate(1.6) blur(12px);
+	-webkit-backdrop-filter: saturate(1.6) blur(12px);
+	padding-block: var(--space-2);
+	border-block-end: 1px solid var(--line);
+}
+
+/* A section has to clear the sticky tabs when an anchor jumps to it. */
+.menu-section {
+	scroll-margin-block-start: 4.5rem;
+}
+
+.menu-row {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: var(--space-3);
+	align-items: start;
+	padding: var(--space-3);
+	min-block-size: var(--tap);
+	inline-size: 100%;
+	text-align: start;
+	text-decoration: none;
+	color: inherit;
+}
+
+.menu-row-photo {
+	inline-size: 4.5rem;
+	block-size: 4.5rem;
+	border-radius: var(--r-md);
+	object-fit: cover;
+}
+
+/* Sold out: visibly unavailable, and not a link. Opacity alone would leave
+   the only signal a colour change, so the row also carries a "Sold out" badge
+   the screen reader reaches. */
+.menu-row-out {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+/* --- Item sheet ---------------------------------------------------------- */
+
+.item-sheet {
+	--sheet-max: 34rem;
+}
+
+.item-sheet .sheet-body {
+	padding: var(--space-4);
+}
+
+.option-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-block-size: var(--tap);
+	padding-block: var(--space-1);
+}
+
+.option-row .option-price {
+	margin-inline-start: auto;
+	color: var(--text-muted);
+	font-size: var(--text-sm);
+	font-variant-numeric: tabular-nums;
+}
+
+/* --- Cart and checkout --------------------------------------------------- */
+
+.cart-line {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: var(--space-2) var(--space-3);
+	padding-block: var(--space-3);
+	border-block-end: 1px solid var(--line);
+}
+
+.cart-line:last-child {
+	border-block-end: 0;
+}
+
+/* The breakdown. A definition list rather than a table: it is label and value,
+   not rows and columns, and at 360px a table of two columns wastes the gutter
+   a dl does not. */
+.breakdown {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: var(--space-2) var(--space-4);
+	margin: 0;
+	font-variant-numeric: tabular-nums;
+}
+
+.breakdown dt {
+	color: var(--text-muted);
+}
+
+.breakdown dd {
+	margin: 0;
+	text-align: end;
+}
+
+/* dt and dd are siblings in a grid, so a "row" is styled by putting the class
+   on both halves. */
+.breakdown .breakdown-total {
+	font-weight: 700;
+	color: var(--text);
+	padding-block-start: var(--space-2);
+	border-block-start: 1px solid var(--line);
+}
+
+/* A second <dd> under a line, spanning the pair: the sentence that explains it,
+   which is where wait pay says what it is for. */
+.breakdown .breakdown-note {
+	grid-column: 1 / -1;
+	margin: 0;
+	text-align: start;
+	font-size: var(--text-sm);
+	color: var(--text-muted);
+}
+
+.tip-presets {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: var(--space-2);
+}
+
+/* --- Tracking ------------------------------------------------------------ */
+
+.tracking-map {
+	inline-size: 100%;
+	block-size: 15rem;
+	border: 0;
+	border-radius: var(--r-md);
+	background: var(--sunken);
+}
+
+.tracking-step-time {
+	font-variant-numeric: tabular-nums;
+	color: var(--text-muted);
+	font-size: var(--text-sm);
+}

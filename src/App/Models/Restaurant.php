@@ -133,6 +133,47 @@ class Restaurant extends Model
         return self::update($restaurantId, ['paused' => 0, 'paused_until' => null]);
     }
 
+    /**
+     * What a customer in one delivery zone may browse, optionally narrowed by a
+     * search.
+     *
+     * The search covers item names as well as restaurant names, because
+     * somebody who wants a burrito does not know which of three kitchens calls
+     * itself a taqueria. Hidden and out-of-stock items are left out of the
+     * match: turning up a restaurant for something it cannot sell you is worse
+     * than not turning it up at all.
+     *
+     * Closed restaurants are included. The browse screen sorts them to the
+     * bottom with the hour they open, which is more useful than hiding a
+     * favourite for nine hours a day.
+     */
+    public static function discoverable(?int $zoneId, string $search = ''): array
+    {
+        $search = trim($search);
+        $bindings = [self::STATUS_ACTIVE];
+        $where = 'r.status = ?';
+
+        if ($zoneId !== null) {
+            $where .= ' AND r.delivery_zone_id = ?';
+            $bindings[] = $zoneId;
+        }
+
+        if ($search !== '') {
+            $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
+            $where .= ' AND (r.name LIKE ? OR mi.name LIKE ?)';
+            $bindings[] = $like;
+            $bindings[] = $like;
+        }
+
+        return self::query(
+            'SELECT DISTINCT r.* FROM restaurants r
+             LEFT JOIN menu_items mi ON mi.restaurant_id = r.id AND mi.active = 1 AND mi.in_stock = 1
+             WHERE ' . $where . '
+             ORDER BY r.name ASC',
+            $bindings
+        );
+    }
+
     public static function withStatus(string $status): array
     {
         return self::allBy('status', $status, 'name ASC');

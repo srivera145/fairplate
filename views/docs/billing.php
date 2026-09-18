@@ -11,7 +11,7 @@ STRIPE_PRICE_PRO_MONTHLY=</code></pre>
         <pre><code>$router-&gt;get('/billing/upgrade', [BillingController::class, 'showPlans']);
 $router-&gt;post('/billing/checkout', [BillingController::class, 'checkout']);
 $router-&gt;post('/billing/portal', [BillingController::class, 'portal']);
-$router-&gt;post('/webhooks/stripe', [StripeWebhookController::class, 'handle']);</code></pre>
+$router-&gt;post('/webhooks/stripe', [Webhooks\StripeController::class, 'handle']);</code></pre>
 
     <h2>Operational notes</h2>
     <ul>

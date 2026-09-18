@@ -137,7 +137,7 @@ final class PricingService
         $parts = [
             'subtotal' => $subtotal['subtotal_cents'],
             'tax' => Money::percentOf($subtotal['taxable_cents'], $taxRate),
-            'tip' => $this->tip($cart),
+            'tip' => $this->tip($cart, $subtotal['subtotal_cents']),
             'platform_fee' => $isMember ? 0 : (int) $snapshot['platform_fee_cents'],
         ] + $this->driverPay($routeMiles, $snapshot);
 
@@ -579,8 +579,20 @@ final class PricingService
         return $cents;
     }
 
-    private function tip(array $cart): int
+    /**
+     * The tip, from either a typed amount or a chosen percentage.
+     *
+     * A cart stores the customer's *choice* — "18%" or "this many cents" — and
+     * never an amount computed anywhere else. That is what keeps a percentage
+     * tip honest: 18% of what the server says the food costs, not 18% of
+     * whatever a page decided to post.
+     */
+    private function tip(array $cart, int $subtotalCents): int
     {
+        if (array_key_exists('tip_basis_points', $cart) && !array_key_exists('tip_cents', $cart)) {
+            return $this->tipFromBasisPoints($subtotalCents, (int) $cart['tip_basis_points']);
+        }
+
         $tip = (int) ($cart['tip_cents'] ?? 0);
 
         if ($tip < 0) {
@@ -588,6 +600,61 @@ final class PricingService
         }
 
         return $tip;
+    }
+
+    /**
+     * A percentage of the food subtotal, as cents.
+     *
+     * Basis points rather than a percent, so 18% is the integer 1800 and never
+     * a float on its way through a form.
+     */
+    public function tipFromBasisPoints(int $subtotalCents, int $basisPoints): int
+    {
+        if ($basisPoints < 0) {
+            throw new PricingException('A tip cannot be negative.');
+        }
+
+        $rate = intdiv($basisPoints, 10000)
+            . '.' . str_pad((string) ($basisPoints % 10000), 4, '0', STR_PAD_LEFT);
+
+        return Money::percentOf(max(0, $subtotalCents), $rate);
+    }
+
+    /**
+     * What a membership would have taken off one already-priced order.
+     *
+     * The platform fee is the obvious part, but it is not the whole answer: the
+     * service fee is a gross-up of everything below it, so removing the platform
+     * fee shrinks the processing charge that carries it too. Both come out of
+     * the order's own frozen snapshot, so a nudge shown today is arithmetic on
+     * what was actually charged rather than on today's settings.
+     *
+     * Zero for an order that was already a member's.
+     *
+     * @param array<string, mixed> $row an order_price_breakdown row
+     */
+    public function memberSavings(array $row): int
+    {
+        $platformFee = (int) ($row['platform_fee_cents'] ?? 0);
+
+        if ($platformFee <= 0) {
+            return 0;
+        }
+
+        $snapshot = OrderPriceBreakdown::settingsSnapshot($row);
+
+        if ($snapshot === []) {
+            return 0;
+        }
+
+        $charged = (int) ($row['total_cents'] ?? 0)
+            - (int) ($row['service_fee_cents'] ?? 0);
+
+        $fixed = (int) $snapshot['processing_fixed_cents'];
+        $rate = (string) $snapshot['processing_pct'];
+
+        return Money::grossUp($charged, $fixed, $rate)
+            - Money::grossUp(max(0, $charged - $platformFee), $fixed, $rate);
     }
 
     /**

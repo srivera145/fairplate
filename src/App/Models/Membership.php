@@ -6,7 +6,10 @@ class Membership extends Model
 {
     protected const TABLE = 'memberships';
 
-    protected const COLUMNS = ['user_id', 'stripe_subscription_id', 'status', 'current_period_end'];
+    protected const COLUMNS = [
+        'user_id', 'stripe_subscription_id', 'status', 'current_period_end',
+        'cancel_at_period_end',
+    ];
 
     public const STATUS_ACTIVE = 'active';
     public const STATUS_TRIALING = 'trialing';
@@ -46,5 +49,35 @@ class Membership extends Model
         );
 
         return $row !== null;
+    }
+
+    /**
+     * The same question as isActiveFor(), asked of a row already in hand.
+     */
+    public static function entitles(?array $membership): bool
+    {
+        if ($membership === null) {
+            return false;
+        }
+
+        if (!in_array((string) ($membership['status'] ?? ''), self::ENTITLED_STATUSES, true)) {
+            return false;
+        }
+
+        $periodEnd = $membership['current_period_end'] ?? null;
+
+        return $periodEnd === null
+            || $periodEnd === ''
+            || strtotime((string) $periodEnd . ' UTC') > time();
+    }
+
+    /**
+     * Still running, but already told not to renew. The membership page has to
+     * say so: "active" on its own reads as a cancellation that did not work.
+     */
+    public static function isEnding(?array $membership): bool
+    {
+        return self::entitles($membership)
+            && (int) ($membership['cancel_at_period_end'] ?? 0) === 1;
     }
 }

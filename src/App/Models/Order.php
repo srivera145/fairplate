@@ -112,6 +112,63 @@ class Order extends Model
         return $row === null ? null : (int) $row['restaurant_id'];
     }
 
+    /**
+     * One customer's orders in an America/New_York calendar month, ignoring the
+     * ones nobody was charged for.
+     *
+     * The month boundary is resolved against the real zone in PHP and compared
+     * against stored UTC, the same way the restaurant's monthly count is, so the
+     * two never disagree about which month an order fell in.
+     */
+    public static function forCustomerInPeriod(int $customerId, string $period): array
+    {
+        [$startUtc, $endUtc] = self::periodBoundsUtc($period);
+
+        return self::query(
+            'SELECT * FROM orders
+             WHERE customer_id = ?
+               AND placed_at >= ?
+               AND placed_at < ?
+               AND status NOT IN (?, ?)
+             ORDER BY placed_at ASC, id ASC',
+            [$customerId, $startUtc, $endUtc, self::STATUS_CANCELLED, self::STATUS_REJECTED]
+        );
+    }
+
+    /**
+     * An order with the driver's first name and vehicle attached, which is all
+     * the tracking page is allowed to show about whoever is carrying the food.
+     */
+    public static function withDriverForCustomer(int $customerId, int $orderId): ?array
+    {
+        return self::queryOne(
+            'SELECT o.*, du.name AS driver_name, d.vehicle_make, d.vehicle_model,
+                    d.vehicle_color, d.last_lat AS driver_last_lat, d.last_lng AS driver_last_lng
+             FROM orders o
+             LEFT JOIN drivers d ON d.id = o.driver_id
+             LEFT JOIN users du ON du.id = d.user_id
+             WHERE o.id = ? AND o.customer_id = ?
+             LIMIT 1',
+            [$orderId, $customerId]
+        );
+    }
+
+    /**
+     * The statuses during which a customer may watch the driver move.
+     *
+     * Before pickup there is nothing of theirs to follow, and after delivery the
+     * driver's whereabouts stop being any of the customer's business.
+     */
+    public const TRACKABLE_STATUSES = [
+        self::STATUS_PICKED_UP,
+        self::STATUS_ARRIVED_AT_CUSTOMER,
+    ];
+
+    public static function isTrackable(array $order): bool
+    {
+        return in_array((string) ($order['status'] ?? ''), self::TRACKABLE_STATUSES, true);
+    }
+
     public static function forCustomerAndId(int $customerId, int $orderId): ?array
     {
         return self::queryOne(
