@@ -31,6 +31,20 @@ abstract class Model
         return static::TABLE;
     }
 
+    /**
+     * The columns this model will write.
+     *
+     * Exposed so a caller that builds its own UPDATE — OrderLifecycle is the
+     * one that does — can check a column name against the same list create()
+     * and update() filter against, instead of keeping a second copy.
+     *
+     * @return list<string>
+     */
+    public static function writableColumns(): array
+    {
+        return static::COLUMNS;
+    }
+
     public static function find(int $id): ?array
     {
         $statement = Database::connection()->prepare(

@@ -42,7 +42,10 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          extensions: pdo, pdo_mysql, mbstring, zip
+          # gd is what resizes and re-encodes menu photos. Without it the photo
+          # tests skip rather than fail, so leaving it out would quietly stop
+          # covering the upload path instead of turning CI red.
+          extensions: pdo, pdo_mysql, mbstring, zip, gd
           coverage: none
 
       # Composer installs Deck and publishes its stylesheet, icon sprite and scripts into

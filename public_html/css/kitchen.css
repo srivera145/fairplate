@@ -1,0 +1,237 @@
+/* The kitchen app, on top of Deck.
+ *
+ * Deck already gives the board its columns, its cards and a 44px floor on every
+ * control, so this file is only the handful of things that are specific to a
+ * tablet propped up next to a pass: three columns that share the width instead
+ * of scrolling sideways, cards that stay legible from arm's length, and a new
+ * order that is impossible to walk past.
+ *
+ * Everything here is a variable Deck already defines. No colour is written as a
+ * literal, so the light and dark themes and any brand hue keep working.
+ */
+
+/* Deck's default control height is 42px, and it makes up the difference for
+   buttons with a 44px pseudo-element hit area. Text fields and selects get no
+   such treatment, so on a screen where every control is touched with a thumb
+   they come up two pixels short of the floor this project sets. Raising the
+   token lifts buttons, inputs, selects and textareas together rather than
+   restyling four components, and it applies only where this file is loaded. */
+body {
+	--control-h: 44px;
+}
+
+/* --- The board ---------------------------------------------------------- */
+
+/* Deck's .kanban scrolls sideways past fixed-width columns, which is right for
+   an issue board with nine of them and wrong for three that have to be visible
+   at once while someone cooks. The columns share the row instead. */
+.kitchen-board {
+	align-items: stretch;
+	overflow-x: visible;
+}
+
+.kitchen-board > .kanban-col {
+	flex: 1 1 0;
+	min-inline-size: 0;
+	max-block-size: none;
+}
+
+/* Below a phone's width three columns stop being three columns. */
+@media (max-width: 40rem) {
+	.kitchen-board {
+		flex-direction: column;
+	}
+}
+
+/* In landscape the header and nav are the only thing above the board, so the
+   card region can take the rest of the screen and scroll inside itself — the
+   page never scrolls, and a column filling up does not push the others down. */
+@media (min-width: 40rem) and (orientation: landscape) {
+	.kitchen-board .kanban-body {
+		max-block-size: calc(100dvh - 16rem);
+	}
+}
+
+.kitchen-board .kanban-head {
+	font-size: var(--text-md);
+	padding-block: var(--space-3);
+}
+
+/* --- Order cards --------------------------------------------------------- */
+
+.order-card {
+	gap: var(--space-3);
+	padding: var(--space-4);
+}
+
+.order-card-num {
+	font-size: var(--text-lg);
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+
+/* A new order outranks everything else on the screen. The ring is on the card
+   rather than a colour swap so it reads the same in both themes. */
+.order-card-new {
+	border-color: var(--brand-400);
+	box-shadow: 0 0 0 2px var(--brand-soft), var(--shadow-2);
+}
+
+/* Reduced motion is not a preference to override on a screen someone stares at
+   for eight hours. The ring alone still carries the meaning. */
+@media (prefers-reduced-motion: no-preference) {
+	.order-card-new .order-card-num::before {
+		content: "";
+		display: inline-block;
+		inline-size: .6em;
+		block-size: .6em;
+		margin-inline-end: .4em;
+		border-radius: var(--r-full);
+		background: var(--brand-500);
+		animation: order-pulse 1.6s ease-in-out infinite;
+	}
+}
+
+@keyframes order-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: .25; }
+}
+
+/* The line items. Quantity in its own column so a 2 never hides inside a name. */
+.order-lines {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: var(--space-1) var(--space-3);
+	font-size: var(--text-md);
+}
+
+.order-lines dt {
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+
+.order-line-opts {
+	display: block;
+	font-size: var(--text-sm);
+	color: var(--text-muted);
+}
+
+/* Special instructions are the line that gets missed, so they get a box. */
+.order-note {
+	border-inline-start: 3px solid var(--warn-500, var(--brand-500));
+	padding-inline-start: var(--space-3);
+	font-size: var(--text-sm);
+}
+
+/* --- Action disclosures -------------------------------------------------- */
+
+/* Accept and Reject open a set of buttons rather than a dialog: no script, and
+   the prep time is one tap rather than two. */
+.order-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.order-actions > * {
+	flex: 1 1 8rem;
+}
+
+/* Accept and Reject sit side by side until one of them is opened, and then the
+   open one takes the whole row: five prep times squeezed into half a card wrap
+   into a block of small targets, which is the opposite of the point. */
+.order-actions > details[open] {
+	flex-basis: 100%;
+}
+
+.order-choices {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin-block-start: var(--space-3);
+}
+
+.order-choices .btn {
+	flex: 1 1 4.5rem;
+}
+
+.order-disclosure > summary {
+	list-style: none;
+	cursor: pointer;
+}
+
+.order-disclosure > summary::-webkit-details-marker {
+	display: none;
+}
+
+/* --- Menu ordering ------------------------------------------------------- */
+
+/* Up and down sit side by side, not stacked.
+   Deck gives every .btn a 44px hit area through a pseudo-element even though it
+   draws at 42px. Two of them stacked two pixels apart would therefore overlap by
+   about five pixels each, and a tap near the seam would move the row the wrong
+   way — which on a menu screen is a mistake nobody notices until a customer
+   orders from the wrong section. Side by side, the hit areas cannot overlap. */
+.sort-buttons {
+	display: flex;
+	flex-direction: row;
+	gap: var(--space-1);
+}
+
+.sort-buttons .btn {
+	padding-inline: var(--space-2);
+}
+
+/* The item name opens the item, so it is a target, not a label: it gets the
+   same 44px as everything else rather than the height of its own text. */
+.menu-rows .list-title {
+	display: inline-flex;
+	align-items: center;
+	min-block-size: var(--tap);
+}
+
+/* The row being dragged, and the gap it will land in. Deck styles .sortable-*
+   already; these two only apply them to the rows this app drags. */
+.menu-rows .is-dragging {
+	opacity: .45;
+}
+
+.menu-rows .is-drop-target {
+	outline: 2px dashed var(--brand-400);
+	outline-offset: -2px;
+}
+
+/* --- Sound gate ---------------------------------------------------------- */
+
+/* Browsers will not play the chime until someone has touched the page, so the
+   board says so plainly instead of failing quietly. */
+.sound-gate {
+	position: sticky;
+	inset-block-start: 0;
+	z-index: 3;
+}
+
+/* --- Specials preview ---------------------------------------------------- */
+
+.special-preview {
+	border: 1px dashed var(--line-strong);
+	border-radius: var(--r-md);
+	padding: var(--space-4);
+	background: var(--bg-sunken);
+}
+
+/* --- Tier progress ------------------------------------------------------- */
+
+.tier-bar {
+	block-size: 1rem;
+	border-radius: var(--r-full);
+	background: var(--bg-sunken);
+	border: 1px solid var(--line);
+	overflow: hidden;
+}
+
+.tier-bar > span {
+	display: block;
+	block-size: 100%;
+	background: var(--brand-500);
+}

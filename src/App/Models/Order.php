@@ -8,8 +8,8 @@ class Order extends Model
 
     protected const COLUMNS = [
         'customer_id', 'restaurant_id', 'driver_id', 'address_snapshot', 'status',
-        'route_miles', 'placed_at', 'accepted_at', 'rejected_at', 'ready_at',
-        'driver_assigned_at', 'arrived_at_restaurant_at', 'picked_up_at',
+        'route_miles', 'prep_minutes', 'placed_at', 'accepted_at', 'rejected_at', 'ready_at',
+        'driver_assigned_at', 'driver_eta_at', 'arrived_at_restaurant_at', 'picked_up_at',
         'arrived_at_customer_at', 'delivered_at', 'cancelled_at', 'needs_attention_at',
         'authorized_cents', 'captured_cents', 'stripe_payment_intent_id',
         'stripe_fee_cents', 'is_member_order', 'cancel_reason', 'reject_reason',
@@ -67,6 +67,49 @@ class Order extends Model
     public static function withStatus(string $status): array
     {
         return self::allBy('status', $status, 'created_at ASC, id ASC');
+    }
+
+    /** The statuses the kitchen board's three columns are built from. */
+    public const BOARD_STATUSES = [
+        self::STATUS_PLACED,
+        self::STATUS_ACCEPTED,
+        self::STATUS_READY,
+        self::STATUS_DRIVER_ASSIGNED,
+    ];
+
+    /**
+     * Everything live on one restaurant's board, oldest first.
+     *
+     * The customer's and driver's names come along, because the card shows both
+     * and fetching them per card would make a five-second poll a few dozen
+     * queries. The view shows only the customer's first name — a kitchen
+     * calling out an order has no business with the rest.
+     */
+    public static function boardForRestaurant(int $restaurantId): array
+    {
+        $placeholders = implode(', ', array_fill(0, count(self::BOARD_STATUSES), '?'));
+
+        return self::query(
+            'SELECT o.*, c.name AS customer_name, du.name AS driver_name
+             FROM orders o
+             INNER JOIN users c ON c.id = o.customer_id
+             LEFT JOIN drivers d ON d.id = o.driver_id
+             LEFT JOIN users du ON du.id = d.user_id
+             WHERE o.restaurant_id = ? AND o.status IN (' . $placeholders . ')
+             ORDER BY o.placed_at ASC, o.id ASC',
+            array_merge([$restaurantId], self::BOARD_STATUSES)
+        );
+    }
+
+    /**
+     * The restaurant an order belongs to, for the scope check, without pulling
+     * the whole row.
+     */
+    public static function restaurantIdFor(int $orderId): ?int
+    {
+        $row = self::queryOne('SELECT restaurant_id FROM orders WHERE id = ? LIMIT 1', [$orderId]);
+
+        return $row === null ? null : (int) $row['restaurant_id'];
     }
 
     public static function forCustomerAndId(int $customerId, int $orderId): ?array
@@ -154,5 +197,19 @@ class Order extends Model
     public static function isTerminal(array $order): bool
     {
         return in_array((string) ($order['status'] ?? ''), self::TERMINAL_STATUSES, true);
+    }
+
+    /**
+     * The only part of the customer's name the kitchen sees.
+     */
+    public static function customerFirstName(array $order): string
+    {
+        $name = trim((string) ($order['customer_name'] ?? ''));
+
+        if ($name === '') {
+            return 'Customer';
+        }
+
+        return explode(' ', $name)[0];
     }
 }

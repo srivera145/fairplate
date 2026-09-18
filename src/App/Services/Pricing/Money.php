@@ -54,6 +54,105 @@ final class Money
     }
 
     /**
+     * A price typed in dollars, as integer cents.
+     *
+     * Menus are edited in dollars because that is what is printed on the board
+     * behind the counter, and stored in cents because everything downstream is
+     * integer arithmetic. This is the only place that conversion happens, in
+     * either direction, so there is exactly one answer to what "12.5" means.
+     *
+     * The string is parsed digit by digit rather than multiplied by 100: (int)
+     * (1.15 * 100) is 114 on every machine this will ever run on, and a penny
+     * lost here is a penny the restaurant never sees.
+     *
+     * @param bool $allowNegative option price deltas may discount an item
+     */
+    public static function fromDollars(string $dollars, bool $allowNegative = false): int
+    {
+        $trimmed = trim(str_replace([',', '$', ' '], '', $dollars));
+
+        if ($trimmed === '') {
+            throw new PricingException('A price is required.');
+        }
+
+        if (!preg_match('/^(-?)(\d*)(?:\.(\d{0,2}))?$/', $trimmed, $matches)) {
+            throw new PricingException("\"{$dollars}\" is not a price. Use dollars and cents, like 12.50.");
+        }
+
+        $whole = $matches[2];
+        $fraction = $matches[3] ?? '';
+
+        if ($whole === '' && $fraction === '') {
+            throw new PricingException("\"{$dollars}\" is not a price. Use dollars and cents, like 12.50.");
+        }
+
+        $negative = $matches[1] === '-';
+
+        if ($negative && !$allowNegative) {
+            throw new PricingException('A price cannot be negative.');
+        }
+
+        $cents = ((int) ($whole === '' ? '0' : $whole)) * 100
+            + (int) str_pad($fraction, 2, '0', STR_PAD_RIGHT);
+
+        return $negative ? -$cents : $cents;
+    }
+
+    /**
+     * Integer cents as the dollars string a form field should show.
+     *
+     * Built by hand rather than with number_format, which would route the value
+     * through a float on the way back out.
+     */
+    public static function toDollars(int $cents): string
+    {
+        $sign = $cents < 0 ? '-' : '';
+        $magnitude = abs($cents);
+
+        return $sign . intdiv($magnitude, 100) . '.' . str_pad((string) ($magnitude % 100), 2, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * A percentage typed by a human as the decimal rate a column stores.
+     *
+     * Sales tax is 7.5% on the sign behind the counter and 0.0750 in the
+     * database, and the trip between the two is the same class of mistake as
+     * dollars to cents: (float) "7.5" / 100 is not 0.075, and a tax rate that is
+     * wrong in the fourth decimal is wrong on every order forever.
+     *
+     * Capped at two decimal places of percent, which is the precision
+     * DECIMAL(5,4) can hold once divided by a hundred.
+     */
+    public static function rateFromPercent(string $percent): string
+    {
+        $trimmed = trim(str_replace(['%', ' '], '', $percent));
+
+        if (!preg_match('/^(\d{1,2})(?:\.(\d{0,2}))?$/', $trimmed, $matches)) {
+            throw new PricingException("\"{$percent}\" is not a percentage. Use a number like 7.5.");
+        }
+
+        // Hundredths of a percent, so 7.5% is 750 and the division by 100 that
+        // turns a percentage into a rate is a shift of the decimal point.
+        $hundredths = ((int) $matches[1] * 100)
+            + (int) str_pad($matches[2] ?? '', 2, '0', STR_PAD_RIGHT);
+
+        return '0.' . str_pad((string) $hundredths, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * A stored decimal rate as the percentage a form field should show, with no
+     * trailing zeros: 0.0750 reads back as 7.5, not 7.500.
+     */
+    public static function percentFromRate(string $rate): string
+    {
+        [$numerator, $denominator] = self::ratio($rate);
+        $hundredths = intdiv(10000 * $numerator, $denominator);
+        $fraction = rtrim(str_pad((string) ($hundredths % 100), 2, '0', STR_PAD_LEFT), '0');
+
+        return intdiv($hundredths, 100) . ($fraction === '' ? '' : '.' . $fraction);
+    }
+
+    /**
      * round(cents × rate) to the nearest cent, halves away from zero.
      *
      * This is the tax rule and the rule every special discount follows.

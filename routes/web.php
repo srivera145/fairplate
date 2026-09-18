@@ -4,7 +4,13 @@ use Keel\App\Controllers\AdminController;
 use Keel\App\Controllers\AppController;
 use Keel\App\Controllers\AuthController;
 use Keel\App\Controllers\DriveController;
-use Keel\App\Controllers\KitchenController;
+use Keel\App\Controllers\Kitchen\ConnectController as KitchenConnectController;
+use Keel\App\Controllers\Kitchen\HoursController as KitchenHoursController;
+use Keel\App\Controllers\Kitchen\MenuController as KitchenMenuController;
+use Keel\App\Controllers\Kitchen\OnboardingController as KitchenOnboardingController;
+use Keel\App\Controllers\Kitchen\OrdersController as KitchenOrdersController;
+use Keel\App\Controllers\Kitchen\SpecialsController as KitchenSpecialsController;
+use Keel\App\Controllers\Kitchen\StaffController as KitchenStaffController;
 use Keel\App\Controllers\PhoneAuthController;
 use Keel\App\Controllers\ActivityController;
 use Keel\App\Controllers\ApiFileController;
@@ -116,8 +122,60 @@ $router->group(['middleware' => [CsrfMiddleware::class]], function ($router) use
         $router->get('', [AppController::class, 'index']);
     });
 
+    // The kitchen app. RequireRestaurantStaff answers "is this a kitchen user";
+    // every route below then asks Kitchen\KitchenController whether it is *their*
+    // kitchen, because these URLs carry record ids from a table shared by every
+    // restaurant on the platform.
     $router->group(['prefix' => '/kitchen', 'middleware' => [RequireRestaurantStaff::class]], function ($router) {
-        $router->get('', [KitchenController::class, 'index']);
+        $router->get('', [KitchenOrdersController::class, 'index']);
+        $router->get('/orders/feed', [KitchenOrdersController::class, 'feed']);
+        $router->post('/orders/{id}/accept', [KitchenOrdersController::class, 'accept']);
+        $router->post('/orders/{id}/reject', [KitchenOrdersController::class, 'reject']);
+        $router->post('/orders/{id}/ready', [KitchenOrdersController::class, 'ready']);
+        $router->get('/month', [KitchenOrdersController::class, 'month']);
+
+        $router->get('/onboarding', [KitchenOnboardingController::class, 'show']);
+        $router->post('/onboarding', [KitchenOnboardingController::class, 'save']);
+        $router->post('/onboarding/photo/{kind}', [KitchenOnboardingController::class, 'uploadPhoto']);
+        $router->post('/restaurant/select', [KitchenOnboardingController::class, 'selectRestaurantAction']);
+
+        $router->post('/connect/start', [KitchenConnectController::class, 'start']);
+        $router->get('/connect/refresh', [KitchenConnectController::class, 'refresh']);
+        $router->get('/connect/return', [KitchenConnectController::class, 'return']);
+
+        $router->get('/menu', [KitchenMenuController::class, 'index']);
+        $router->post('/menu/sort', [KitchenMenuController::class, 'sort']);
+        $router->post('/menu/{type}/{id}/move', [KitchenMenuController::class, 'move']);
+        $router->post('/menu/categories', [KitchenMenuController::class, 'storeCategory']);
+        $router->post('/menu/categories/{id}', [KitchenMenuController::class, 'updateCategory']);
+        $router->post('/menu/categories/{id}/delete', [KitchenMenuController::class, 'destroyCategory']);
+        $router->post('/menu/items', [KitchenMenuController::class, 'storeItem']);
+        $router->get('/menu/items/{id}', [KitchenMenuController::class, 'editItem']);
+        $router->post('/menu/items/{id}', [KitchenMenuController::class, 'updateItem']);
+        $router->post('/menu/items/{id}/delete', [KitchenMenuController::class, 'destroyItem']);
+        $router->post('/menu/items/{id}/stock', [KitchenMenuController::class, 'toggleStock']);
+        $router->post('/menu/items/{id}/photo', [KitchenMenuController::class, 'uploadItemPhoto']);
+        $router->post('/menu/items/{id}/photo/delete', [KitchenMenuController::class, 'removeItemPhoto']);
+        $router->post('/menu/items/{id}/groups', [KitchenMenuController::class, 'storeGroup']);
+        $router->post('/menu/groups/{id}', [KitchenMenuController::class, 'updateGroup']);
+        $router->post('/menu/groups/{id}/delete', [KitchenMenuController::class, 'destroyGroup']);
+        $router->post('/menu/groups/{id}/options', [KitchenMenuController::class, 'storeOption']);
+        $router->post('/menu/options/{id}', [KitchenMenuController::class, 'updateOption']);
+        $router->post('/menu/options/{id}/delete', [KitchenMenuController::class, 'destroyOption']);
+
+        $router->get('/specials', [KitchenSpecialsController::class, 'index']);
+        $router->post('/specials', [KitchenSpecialsController::class, 'store']);
+        $router->post('/specials/{id}', [KitchenSpecialsController::class, 'update']);
+        $router->post('/specials/{id}/delete', [KitchenSpecialsController::class, 'destroy']);
+
+        $router->get('/hours', [KitchenHoursController::class, 'index']);
+        $router->post('/hours', [KitchenHoursController::class, 'save']);
+        $router->post('/pause', [KitchenHoursController::class, 'pause']);
+        $router->post('/resume', [KitchenHoursController::class, 'resume']);
+
+        $router->get('/staff', [KitchenStaffController::class, 'index']);
+        $router->post('/staff', [KitchenStaffController::class, 'invite']);
+        $router->post('/staff/{id}/delete', [KitchenStaffController::class, 'remove']);
     });
 
     $router->group(['prefix' => '/drive', 'middleware' => [RequireDriver::class]], function ($router) {
