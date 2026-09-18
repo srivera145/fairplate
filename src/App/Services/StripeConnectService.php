@@ -2,13 +2,20 @@
 
 namespace Keel\App\Services;
 
+use Keel\App\Models\Driver;
 use Keel\App\Models\Restaurant;
 use Keel\Core\Activity;
 use Keel\Core\Env;
 use Stripe\StripeClient;
 
 /**
- * Stripe Connect Express onboarding for a restaurant.
+ * Stripe Connect Express onboarding, for a restaurant and for a driver.
+ *
+ * Both sides of the marketplace get paid, so both need a connected account, and
+ * the mechanics are identical enough that a second class would be this one with
+ * the nouns changed. What differs is only what Stripe is told about who it is
+ * onboarding — a business with an address and a menu, or an individual with a
+ * car — and which pair of URLs the owner is sent back to.
  *
  * FairPlate charges the customer and then pays the restaurant, so the money
  * lands in the restaurant's own Stripe account and the platform never holds it.
@@ -55,7 +62,81 @@ class StripeConnectService
     {
         $accountId = $this->ensureAccount($restaurant);
 
-        return $this->accountLinkUrl($accountId, 'account_onboarding');
+        return $this->accountLinkUrl($accountId, 'account_onboarding', '/kitchen');
+    }
+
+    /**
+     * The same, for a driver.
+     *
+     * A driver onboards as an individual: Stripe collects the name, date of
+     * birth, tax details and bank account and runs the identity checks, and
+     * FairPlate never sees any of it. That is the point of Express here — the
+     * spec has drivers as independent contractors, and the less of a
+     * contractor's paperwork the platform holds the better for both sides.
+     */
+    public function driverOnboardingUrl(array $driver): string
+    {
+        $accountId = $this->ensureDriverAccount($driver);
+
+        return $this->accountLinkUrl($accountId, 'account_onboarding', '/drive');
+    }
+
+    /**
+     * A fresh link for a driver whose previous one expired.
+     */
+    public function driverRefreshUrl(array $driver): string
+    {
+        $accountId = trim((string) ($driver['stripe_account_id'] ?? ''));
+
+        if ($accountId === '') {
+            return $this->driverOnboardingUrl($driver);
+        }
+
+        return $this->accountLinkUrl($accountId, 'account_onboarding', '/drive');
+    }
+
+    /**
+     * The connected account id for a driver, created on first use and saved
+     * straight away, so an interrupted onboarding resumes into the same account
+     * instead of leaving abandoned ones behind.
+     */
+    public function ensureDriverAccount(array $driver): string
+    {
+        $existing = trim((string) ($driver['stripe_account_id'] ?? ''));
+
+        if ($existing !== '') {
+            return $existing;
+        }
+
+        $driverId = (int) $driver['id'];
+
+        $account = $this->stripe()->accounts->create([
+            'type' => 'express',
+            'country' => 'US',
+            // A driver is a person, not a company. Saying so up front spares
+            // them Stripe's first question.
+            'business_type' => 'individual',
+            'business_profile' => [
+                'mcc' => '4121', // Taxicabs and limousines: Stripe's category for delivery earnings.
+                'product_description' => 'Food delivery for FairPlate.',
+            ],
+            'capabilities' => [
+                'transfers' => ['requested' => true],
+            ],
+            'metadata' => [
+                'driver_id' => (string) $driverId,
+                'user_id' => (string) $driver['user_id'],
+            ],
+        ]);
+
+        $accountId = (string) $account->id;
+
+        Driver::update($driverId, ['stripe_account_id' => $accountId]);
+        Activity::log('driver.stripe_account_created', 'Driver', $driverId, [
+            'stripe_account_id' => $accountId,
+        ]);
+
+        return $accountId;
     }
 
     /**
@@ -70,17 +151,20 @@ class StripeConnectService
             return $this->onboardingUrl($restaurant);
         }
 
-        return $this->accountLinkUrl($accountId, 'account_onboarding');
+        return $this->accountLinkUrl($accountId, 'account_onboarding', '/kitchen');
     }
 
     /**
      * What Stripe currently says about the account.
      *
+     * Takes any row carrying a stripe_account_id — a restaurant or a driver —
+     * because the question and the answer are the same for both.
+     *
      * @return array{connected: bool, details_submitted: bool, charges_enabled: bool, payouts_enabled: bool, requirements: list<string>}
      */
-    public function status(array $restaurant): array
+    public function status(array $owner): array
     {
-        $accountId = trim((string) ($restaurant['stripe_account_id'] ?? ''));
+        $accountId = trim((string) ($owner['stripe_account_id'] ?? ''));
 
         $empty = [
             'connected' => false,
@@ -161,13 +245,21 @@ class StripeConnectService
         return $accountId;
     }
 
-    private function accountLinkUrl(string $accountId, string $type): string
+    /**
+     * A single-use hosted link, and the two URLs Stripe sends the person back
+     * through.
+     *
+     * $area is the route group doing the onboarding — /kitchen or /drive — so
+     * the owner lands back in their own application rather than in somebody
+     * else's.
+     */
+    private function accountLinkUrl(string $accountId, string $type, string $area): string
     {
         $link = $this->stripe()->accountLinks->create([
             'account' => $accountId,
             'type' => $type,
-            'refresh_url' => $this->appUrl('/kitchen/connect/refresh'),
-            'return_url' => $this->appUrl('/kitchen/connect/return'),
+            'refresh_url' => $this->appUrl($area . '/connect/refresh'),
+            'return_url' => $this->appUrl($area . '/connect/return'),
         ]);
 
         return (string) $link->url;

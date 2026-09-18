@@ -2,7 +2,14 @@
 
 namespace Keel\App\Services;
 
+use Keel\App\Models\Driver;
 use Keel\App\Models\Order;
+use Keel\App\Models\OrderPriceBreakdown;
+use Keel\App\Services\Delivery\DeliveryProvider;
+use Keel\App\Services\Delivery\InHouseDriverProvider;
+use Keel\App\Services\Pricing\Breakdown;
+use Keel\App\Services\Pricing\PricingException;
+use Keel\App\Services\Pricing\PricingService;
 use Keel\Core\Activity;
 use Keel\Core\Database;
 
@@ -115,6 +122,12 @@ class OrderLifecycle
 
     /**
      * The kitchen takes the order and promises a prep time.
+     *
+     * This is also the moment dispatch begins. The two belong together: an
+     * accepted order nobody was asked to carry is the one failure mode that
+     * looks fine on every screen until the food is cold, so the request for a
+     * courier hangs off the same transition rather than off a screen somebody
+     * has to remember to visit.
      */
     public static function accept(int $orderId, int $prepMinutes): array
     {
@@ -122,9 +135,45 @@ class OrderLifecycle
             throw new OrderLifecycleException("\"{$prepMinutes}\" is not an offered prep time.");
         }
 
-        return self::transition($orderId, Order::STATUS_ACCEPTED, [
+        $order = self::transition($orderId, Order::STATUS_ACCEPTED, [
             'prep_minutes' => $prepMinutes,
         ]);
+
+        self::requestDelivery($order);
+
+        return Order::find($orderId) ?? $order;
+    }
+
+    /**
+     * Asks a provider to find somebody to carry this order.
+     *
+     * A provider that will not take it is not an exception — an address that
+     * slipped outside a redrawn zone is a real thing that happens — but it is
+     * also not something to leave sitting in accepted, because nothing else will
+     * ever look at it again. So it goes straight to a person.
+     */
+    public static function requestDelivery(array $order): void
+    {
+        $orderId = (int) $order['id'];
+        $provider = new InHouseDriverProvider();
+        $result = $provider->request($order);
+
+        if ($result['status'] !== DeliveryProvider::STATUS_UNAVAILABLE) {
+            return;
+        }
+
+        error_log(sprintf(
+            '[FairPlate] %s could not take order %d: %s',
+            $provider->key(),
+            $orderId,
+            $result['message']
+        ));
+
+        try {
+            self::transition($orderId, Order::STATUS_NEEDS_ATTENTION);
+        } catch (OrderLifecycleException $exception) {
+            error_log('[FairPlate] Order ' . $orderId . ' could not be escalated: ' . $exception->getMessage());
+        }
     }
 
     /**
@@ -152,6 +201,10 @@ class OrderLifecycle
             'reject_reason' => $reason,
         ]);
 
+        // Whatever is still counting down on a driver's screen is for food that
+        // is not being cooked. Take the card down before releasing the money.
+        (new InHouseDriverProvider())->cancel($order, $reason);
+
         self::releaseAuthorization($order);
 
         return $order;
@@ -163,6 +216,143 @@ class OrderLifecycle
     public static function markReady(int $orderId): array
     {
         return self::transition($orderId, Order::STATUS_READY);
+    }
+
+    /**
+     * The driver is at the counter. The wait-pay clock starts here.
+     */
+    public static function arriveAtRestaurant(int $orderId): array
+    {
+        return self::transition($orderId, Order::STATUS_ARRIVED_AT_RESTAURANT);
+    }
+
+    /**
+     * The food is in the car, and the wait-pay clock stops.
+     */
+    public static function pickUp(int $orderId): array
+    {
+        return self::transition($orderId, Order::STATUS_PICKED_UP);
+    }
+
+    /**
+     * The driver is outside the customer's address.
+     */
+    public static function arriveAtCustomer(int $orderId): array
+    {
+        return self::transition($orderId, Order::STATUS_ARRIVED_AT_CUSTOMER);
+    }
+
+    /**
+     * It is handed over. The order is priced for the last time here.
+     *
+     * Three things happen, in this order, and the order is the point:
+     *
+     * The final breakdown is computed and written first. It is the only thing
+     * that can fail — a wait that somehow priced above the authorization would
+     * throw — and failing before the status moves leaves an order that is still
+     * picked_up and can be tried again, rather than one that is delivered with
+     * nothing to charge against.
+     *
+     * Then the status moves, which stamps delivered_at.
+     *
+     * Then the driver goes idle and is dispatchable again, which is the one
+     * side effect a driver would notice immediately if it were missed.
+     *
+     * Only the wait pay is recomputed. Everything else is read back exactly as
+     * authorized, because the guarantee a driver accepted must not move and the
+     * rest was agreed to at checkout.
+     *
+     * @param array<string, mixed> $attributes columns this delivery carries —
+     *        the proof-of-delivery photo is the only one so far
+     */
+    public static function deliver(int $orderId, array $attributes = []): array
+    {
+        $order = Order::find($orderId);
+
+        if ($order === null) {
+            throw OrderLifecycleException::missingOrder($orderId);
+        }
+
+        $waitMinutes = self::waitMinutes($order);
+
+        try {
+            $final = (new PricingService())->finalize($order, $waitMinutes);
+        } catch (PricingException $exception) {
+            throw new OrderLifecycleException(
+                "Order {$orderId} could not be priced for delivery: " . $exception->getMessage()
+            );
+        }
+
+        self::writeFinalBreakdown($orderId, $final->toRow($orderId, OrderPriceBreakdown::STAGE_FINAL));
+
+        $delivered = self::transition($orderId, Order::STATUS_DELIVERED, $attributes);
+
+        if (($delivered['driver_id'] ?? null) !== null) {
+            Driver::update((int) $delivered['driver_id'], ['idle' => 1]);
+        }
+
+        Activity::log('order.delivered.priced', 'Order', $orderId, [
+            'wait_minutes' => $waitMinutes,
+            'wait_pay_cents' => $final->line(Breakdown::WAIT_PAY),
+            'final_total_cents' => $final->total(),
+        ]);
+
+        self::captureAndTransfer($delivered);
+
+        return $delivered;
+    }
+
+    /**
+     * Whole minutes from the driver reaching the restaurant to the food being
+     * in the car.
+     *
+     * Whole minutes, floored, because that is what the spec's formula takes and
+     * because a driver who waited eleven minutes and fifty seconds is owed the
+     * same as one who waited eleven — rounding up would pay for a minute nobody
+     * spent, and the free window is what covers the rounding either way.
+     *
+     * Zero until both ends exist, so a live screen asking mid-wait gets a
+     * number it can show rather than a guess about a wait still running.
+     */
+    public static function waitMinutes(array $order): int
+    {
+        $arrived = $order['arrived_at_restaurant_at'] ?? null;
+        $pickedUp = $order['picked_up_at'] ?? null;
+
+        if ($arrived === null || $pickedUp === null) {
+            return 0;
+        }
+
+        $from = strtotime((string) $arrived . ' UTC');
+        $to = strtotime((string) $pickedUp . ' UTC');
+
+        if ($from === false || $to === false || $to <= $from) {
+            return 0;
+        }
+
+        return intdiv($to - $from, 60);
+    }
+
+    /**
+     * Writes the final stage, replacing one already there.
+     *
+     * The table holds one row per stage, so a delivery that had to be retried
+     * updates rather than collides. The stage is fixed by the caller and the
+     * columns come from Breakdown, so nothing a request sent reaches the SQL.
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function writeFinalBreakdown(int $orderId, array $row): void
+    {
+        $existing = OrderPriceBreakdown::forStage($orderId, OrderPriceBreakdown::STAGE_FINAL);
+
+        if ($existing === null) {
+            OrderPriceBreakdown::create($row);
+
+            return;
+        }
+
+        OrderPriceBreakdown::update((int) $existing['id'], $row);
     }
 
     /**

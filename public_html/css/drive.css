@@ -1,0 +1,419 @@
+/* The driver app, on top of Deck.
+ *
+ * This is the hardest of FairPlate's four applications to lay out, and it is
+ * not close. A kitchen tablet sits on a counter in good light. A customer is on
+ * a sofa. A driver is holding a phone in one hand, at arm's length, in sunlight,
+ * with an engine running and forty-five seconds to decide — and the app they are
+ * comparing this to is already open on the same phone.
+ *
+ * So everything here is bigger than it would otherwise be. Deck's 44px floor is
+ * the minimum for controls that are merely tapped; the two that matter, Accept
+ * and the current delivery step, are 64px, because they are tapped without
+ * looking. Numbers that are being compared against another app are set at
+ * display sizes. Nothing on the offer card is below 15px.
+ *
+ * Every colour here is a variable Deck already defines, so light, dark and any
+ * brand hue keep working. Nothing is a literal.
+ */
+
+body.drive-body {
+	/* Deck makes buttons up to 44px with a pseudo-element hit area; text fields
+	   and selects get no such treatment, and every control in this app is
+	   touched with a thumb. */
+	--control-h: 44px;
+
+	/* The two buttons a driver hits without looking. */
+	--drive-action-h: 64px;
+}
+
+/* --- Chrome -------------------------------------------------------------- */
+
+.drive-main {
+	padding-block-end: calc(var(--tap) + var(--space-6) + env(safe-area-inset-bottom));
+}
+
+.drive-header {
+	padding-block: var(--space-3);
+}
+
+.drive-brand {
+	font-family: var(--font-display, inherit);
+	font-size: var(--text-lg);
+	font-weight: 700;
+	color: var(--text);
+}
+
+.drive-status {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* Offline is a hollow ring rather than a grey dot: at arm's length in daylight
+   a filled grey dot and a filled green one are the same dot. */
+.drive-dot {
+	inline-size: 10px;
+	block-size: 10px;
+	border-radius: var(--r-full);
+	border: 2px solid var(--text-faint);
+	flex: 0 0 auto;
+}
+
+.drive-dot.is-online {
+	background: var(--good);
+	border-color: var(--good);
+}
+
+.min-w-0 {
+	min-inline-size: 0;
+}
+
+/* --- Today --------------------------------------------------------------- */
+
+.drive-today-value {
+	font-size: var(--text-2xl);
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.1;
+}
+
+/* --- The online switch --------------------------------------------------- */
+
+/* A whole card that is one button. The switch is the single most-tapped control
+   in the application and it is tapped while getting into a car, so it is the
+   size of the thing it is attached to rather than the size of a switch. */
+.drive-toggle {
+	inline-size: 100%;
+	min-block-size: 96px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-1);
+	padding: var(--space-5);
+	border: 2px solid var(--line-strong);
+	border-radius: var(--r-lg);
+	background: var(--surface);
+	color: var(--text);
+	cursor: pointer;
+	transition: background-color var(--dur-2) var(--ease-out),
+	            border-color var(--dur-2) var(--ease-out),
+	            color var(--dur-2) var(--ease-out);
+}
+
+.drive-toggle:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+.drive-toggle.is-online {
+	background: var(--brand-600);
+	border-color: var(--brand-600);
+	color: var(--text-on-brand);
+}
+
+.drive-toggle-state {
+	font-size: var(--text-xl);
+	font-weight: 700;
+}
+
+.drive-toggle-action {
+	font-size: var(--text-sm);
+	opacity: 0.85;
+}
+
+/* --- Onboarding ---------------------------------------------------------- */
+
+.drive-checklist {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.drive-check {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	color: var(--text-muted);
+}
+
+.drive-check.is-done {
+	color: var(--text);
+}
+
+.drive-check.is-done .icon {
+	color: var(--good);
+}
+
+.drive-primary-action {
+	inline-size: 100%;
+	min-block-size: var(--control-h);
+}
+
+/* --- The offer card ------------------------------------------------------ */
+
+/* Full screen, over everything, including the tab bar. An offer is not
+   something to scroll to. */
+.offer-slot {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	padding: var(--space-3);
+	padding-block-end: calc(var(--space-3) + env(safe-area-inset-bottom));
+	background: var(--bg);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.offer-slot[hidden] {
+	display: none;
+}
+
+.offer-card {
+	inline-size: 100%;
+	max-inline-size: 34rem;
+	margin-inline: auto;
+}
+
+.offer-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	padding: var(--space-4) var(--space-4) 0;
+}
+
+.offer-eyebrow {
+	font-size: var(--text-sm);
+	font-weight: 620;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+}
+
+/* The number the whole screen exists for. clamp so it is enormous at 360px and
+   does not become silly on a tablet. */
+.offer-payout {
+	font-size: clamp(2.75rem, 14vw, 3.75rem);
+	font-weight: 800;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+	letter-spacing: -0.02em;
+}
+
+.offer-ring {
+	transition: none;
+}
+
+/* Ten seconds left. The ring is the only thing on the card that changes, so it
+   is the only thing that may change colour. */
+.offer-ring.is-urgent {
+	background: conic-gradient(var(--bad) calc(var(--value) * 1%), var(--ink-200) 0);
+}
+
+.offer-rate {
+	font-size: var(--text-lg);
+	font-weight: 620;
+	font-variant-numeric: tabular-nums;
+}
+
+.offer-lines {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin: 0;
+}
+
+.offer-line {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-3);
+	font-size: var(--text-sm);
+}
+
+.offer-line dt {
+	color: var(--text-muted);
+}
+
+.offer-line dd {
+	margin: 0;
+	font-weight: 620;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.offer-wait,
+.offer-end {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.offer-ends {
+	padding-block-start: var(--space-3);
+	border-block-start: 1px solid var(--line);
+}
+
+/* --- Accept and decline -------------------------------------------------- */
+
+.offer-actions {
+	display: grid;
+	gap: var(--space-2);
+	padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+/* 64px, and full width. The spec's floor, and the reason for it: this is
+   pressed with a thumb by somebody who is looking at a windscreen. */
+.offer-accept {
+	inline-size: 100%;
+	min-block-size: var(--drive-action-h);
+	font-size: var(--text-lg);
+	font-weight: 700;
+}
+
+/* Decline is deliberately quieter and shorter, but still over the 44px floor.
+   Two buttons of equal weight is how an order gets declined by accident. */
+.offer-decline {
+	inline-size: 100%;
+	min-block-size: var(--tap);
+}
+
+/* --- The delivery -------------------------------------------------------- */
+
+.delivery-where {
+	font-size: var(--text-xl);
+	font-weight: 700;
+	line-height: 1.2;
+}
+
+.delivery-instructions {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border-radius: var(--r-md);
+	background: var(--bg-sunken);
+	font-size: var(--text-sm);
+}
+
+.delivery-navigate {
+	inline-size: 100%;
+	min-block-size: var(--tap);
+}
+
+/* Same 64px as Accept. It is the same thumb, doing the same thing, and it is
+   usually pressed while half out of a car. */
+.delivery-step-action {
+	inline-size: 100%;
+	min-block-size: var(--drive-action-h);
+	font-size: var(--text-lg);
+	font-weight: 700;
+}
+
+/* Only ever on screen once the free minutes are gone, so it is allowed to be
+   loud: it is money appearing. */
+.delivery-wait {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border-radius: var(--r-md);
+	background: var(--brand-soft);
+	color: var(--brand);
+	font-weight: 620;
+	font-variant-numeric: tabular-nums;
+}
+
+.delivery-items {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* --- Earnings ------------------------------------------------------------ */
+
+.earnings-total {
+	font-size: var(--text-2xl);
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.1;
+}
+
+.earnings-lines,
+.earnings-run-lines {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	margin: 0;
+}
+
+.earnings-line {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-3);
+	font-size: var(--text-sm);
+}
+
+.earnings-line dt {
+	color: var(--text-muted);
+}
+
+.earnings-line dd {
+	margin: 0;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.earnings-line-total {
+	padding-block-start: var(--space-2);
+	border-block-start: 1px solid var(--line);
+	font-size: var(--text-base);
+	font-weight: 700;
+}
+
+.earnings-line-total dt {
+	color: var(--text);
+}
+
+.earnings-runs {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.earnings-run {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border: 1px solid var(--line);
+	border-radius: var(--r-md);
+}
+
+.earnings-run-total {
+	font-size: var(--text-lg);
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+/* --- Wider screens ------------------------------------------------------- */
+
+/* Deck hides the tab bar from 48rem up. Nothing else changes: this application
+   is a phone application that happens to render on a tablet, and stretching the
+   offer card across a desk would make the payout harder to read, not easier. */
+@media (min-width: 48rem) {
+	.drive-main {
+		padding-block-end: var(--space-8);
+	}
+}

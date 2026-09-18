@@ -137,7 +137,11 @@ class FairPlateSeedFeatureTest extends TestCase
         $expectations = [
             User::ROLE_CUSTOMER => ['/app', 'Railroad Square Tacos'],
             User::ROLE_RESTAURANT_STAFF => ['/kitchen', 'Railroad Square Tacos'],
-            User::ROLE_DRIVER => ['/drive', 'Corolla'],
+            // The seeded drivers are approved and offline, so this is the branch
+            // of the home screen that only renders for somebody an admin has
+            // already cleared — the vehicle itself now lives on the account
+            // screen rather than on a screen a driver reads at arm's length.
+            User::ROLE_DRIVER => ['/drive', 'Tap to go online'],
             User::ROLE_ADMIN => ['/admin', 'platform_fee_cents'],
         ];
 

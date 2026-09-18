@@ -87,6 +87,18 @@ class User
         $stmt->execute([self::normalizeRole($role), $id]);
     }
 
+    /**
+     * The name a customer will see on a delivery, and a kitchen on a board.
+     *
+     * Sign-in is by phone, so a FairPlate account can exist with no name at all
+     * until the person is somewhere that needs one. Onboarding is that place.
+     */
+    public static function updateName(int $id, string $name): void
+    {
+        $stmt = Database::connection()->prepare('UPDATE users SET name = ? WHERE id = ?');
+        $stmt->execute([$name, $id]);
+    }
+
     public static function updateThemePreference(int $id, string $theme): void
     {
         $stmt = Database::connection()->prepare('UPDATE users SET theme_preference = ? WHERE id = ?');

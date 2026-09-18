@@ -9,7 +9,12 @@ use Keel\App\Controllers\App\MembershipController;
 use Keel\App\Controllers\App\MenuController as AppMenuController;
 use Keel\App\Controllers\App\OrdersController as AppOrdersController;
 use Keel\App\Controllers\AuthController;
-use Keel\App\Controllers\DriveController;
+use Keel\App\Controllers\Drive\DeliveryController as DriveDeliveryController;
+use Keel\App\Controllers\Drive\EarningsController as DriveEarningsController;
+use Keel\App\Controllers\Drive\HomeController as DriveHomeController;
+use Keel\App\Controllers\Drive\LocationController as DriveLocationController;
+use Keel\App\Controllers\Drive\OffersController as DriveOffersController;
+use Keel\App\Controllers\Drive\OnboardingController as DriveOnboardingController;
 use Keel\App\Controllers\Kitchen\ConnectController as KitchenConnectController;
 use Keel\App\Controllers\Kitchen\HoursController as KitchenHoursController;
 use Keel\App\Controllers\Kitchen\MenuController as KitchenMenuController;
@@ -220,12 +225,44 @@ $router->group(['middleware' => [CsrfMiddleware::class]], function ($router) use
         $router->post('/staff/{id}/delete', [KitchenStaffController::class, 'remove']);
     });
 
+    // The driver app. RequireDriver answers "is this a driver"; every route
+    // below that carries a record id then asks Drive\DriverController whether it
+    // is *theirs*, because offers and orders both live in tables shared by every
+    // driver on the platform. A no is a 403 rather than the customer app's 404:
+    // a driver who hesitated over a card and followed a stale link should be
+    // told plainly that somebody else took it.
     $router->group(['prefix' => '/drive', 'middleware' => [RequireDriver::class]], function ($router) {
-        $router->get('', [DriveController::class, 'index']);
+        $router->get('', [DriveHomeController::class, 'index']);
+        $router->post('/online', [DriveHomeController::class, 'setOnline']);
+
+        $router->get('/onboarding', [DriveOnboardingController::class, 'show']);
+        $router->post('/onboarding', [DriveOnboardingController::class, 'save']);
+        $router->post('/connect/start', [DriveOnboardingController::class, 'startConnect']);
+        $router->get('/connect/refresh', [DriveOnboardingController::class, 'refreshConnect']);
+        $router->get('/connect/return', [DriveOnboardingController::class, 'returnFromConnect']);
+
+        // /offers/current is registered before /offers/{id} on purpose: routes
+        // match in the order they are declared, and "current" is a word, not an
+        // id.
+        $router->get('/offers/current', [DriveOffersController::class, 'current']);
+        $router->get('/offers/{id}', [DriveOffersController::class, 'show']);
+        $router->post('/offers/{id}/accept', [DriveOffersController::class, 'accept']);
+        $router->post('/offers/{id}/decline', [DriveOffersController::class, 'decline']);
+
+        $router->get('/orders/{id}', [DriveDeliveryController::class, 'show']);
+        $router->post('/orders/{id}/arrived-restaurant', [DriveDeliveryController::class, 'arrivedAtRestaurant']);
+        $router->post('/orders/{id}/picked-up', [DriveDeliveryController::class, 'pickedUp']);
+        $router->post('/orders/{id}/arrived-customer', [DriveDeliveryController::class, 'arrivedAtCustomer']);
+        $router->post('/orders/{id}/delivered', [DriveDeliveryController::class, 'delivered']);
+
+        $router->get('/earnings', [DriveEarningsController::class, 'index']);
+
+        $router->post('/location', [DriveLocationController::class, 'store']);
     });
 
     $router->group(['prefix' => '/admin', 'middleware' => [RequireAdmin::class]], function ($router) {
         $router->get('', [AdminController::class, 'index']);
+        $router->post('/drivers/{id}/approve', [AdminController::class, 'approveDriver']);
     });
 });
 

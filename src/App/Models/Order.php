@@ -13,6 +13,7 @@ class Order extends Model
         'arrived_at_customer_at', 'delivered_at', 'cancelled_at', 'needs_attention_at',
         'authorized_cents', 'captured_cents', 'stripe_payment_intent_id',
         'stripe_fee_cents', 'is_member_order', 'cancel_reason', 'reject_reason',
+        'delivery_photo',
     ];
 
     public const STATUS_PLACED = 'placed';
@@ -62,6 +63,160 @@ class Order extends Model
     public static function forDriver(int $driverId): array
     {
         return self::allBy('driver_id', $driverId, 'created_at DESC, id DESC');
+    }
+
+    /**
+     * The statuses in which an order is in a driver's hands.
+     *
+     * Dispatch has finished by the time an order is in this list, so these are
+     * also exactly the statuses whose screen the driver app shows: one run, four
+     * taps, nothing else on screen.
+     */
+    public const DRIVER_ACTIVE_STATUSES = [
+        self::STATUS_DRIVER_ASSIGNED,
+        self::STATUS_ARRIVED_AT_RESTAURANT,
+        self::STATUS_PICKED_UP,
+        self::STATUS_ARRIVED_AT_CUSTOMER,
+    ];
+
+    /**
+     * The one run this driver is on, if any.
+     *
+     * A driver carries one order at a time — drivers.idle says so and dispatch
+     * enforces it — so this is a single row rather than a list. Ordering by id
+     * descending is belt and braces: if an earlier run were ever left open by a
+     * crash, the current one still wins.
+     */
+    public static function activeForDriver(int $driverId): ?array
+    {
+        $placeholders = implode(', ', array_fill(0, count(self::DRIVER_ACTIVE_STATUSES), '?'));
+
+        return self::queryOne(
+            'SELECT * FROM orders
+             WHERE driver_id = ? AND status IN (' . $placeholders . ')
+             ORDER BY id DESC
+             LIMIT 1',
+            array_merge([$driverId], self::DRIVER_ACTIVE_STATUSES)
+        );
+    }
+
+    /**
+     * One of this driver's orders, loaded by both ids at once.
+     *
+     * Every driver route that carries an order id goes through here rather than
+     * reading the row and then deciding whether it was allowed to: the query
+     * either finds their order or finds nothing.
+     */
+    public static function forDriverAndId(int $driverId, int $orderId): ?array
+    {
+        return self::queryOne(
+            'SELECT * FROM orders WHERE id = ? AND driver_id = ? LIMIT 1',
+            [$orderId, $driverId]
+        );
+    }
+
+    /**
+     * An order with everything the delivery screen needs about the far ends of
+     * the run: where the food is, and who it is going to.
+     *
+     * The customer's name and phone ride along because the screen needs them the
+     * moment the food is in the car and a second query at that point would be a
+     * second query on a pavement. What the *view* shows, and when, is the
+     * view's rule, not this query's: nothing here is rendered before pickup.
+     */
+    public static function withEndsForDriver(int $driverId, int $orderId): ?array
+    {
+        return self::queryOne(
+            'SELECT o.*,
+                    r.name AS restaurant_name, r.phone AS restaurant_phone,
+                    r.line1 AS restaurant_line1, r.line2 AS restaurant_line2,
+                    r.city AS restaurant_city, r.state AS restaurant_state,
+                    r.zip AS restaurant_zip, r.lat AS restaurant_lat, r.lng AS restaurant_lng,
+                    c.name AS customer_name, c.phone AS customer_phone
+             FROM orders o
+             INNER JOIN restaurants r ON r.id = o.restaurant_id
+             INNER JOIN users c ON c.id = o.customer_id
+             WHERE o.id = ? AND o.driver_id = ?
+             LIMIT 1',
+            [$orderId, $driverId]
+        );
+    }
+
+    /**
+     * The same joins, for an order a driver has only been offered.
+     *
+     * An offer is not an assignment, so this matches on the order id alone and
+     * the caller is the one that has checked the offer belongs to this driver.
+     * It deliberately selects no customer row: an offer card shows a restaurant,
+     * two distances and a payout, and the person waiting at the other end is
+     * none of a driver's business until they have said yes.
+     */
+    public static function withRestaurant(int $orderId): ?array
+    {
+        return self::queryOne(
+            'SELECT o.*,
+                    r.name AS restaurant_name,
+                    r.line1 AS restaurant_line1, r.city AS restaurant_city,
+                    r.lat AS restaurant_lat, r.lng AS restaurant_lng
+             FROM orders o
+             INNER JOIN restaurants r ON r.id = o.restaurant_id
+             WHERE o.id = ?
+             LIMIT 1',
+            [$orderId]
+        );
+    }
+
+    /**
+     * This driver's delivered runs in a window, newest first, with the final
+     * breakdown attached.
+     *
+     * The breakdown is joined rather than fetched per row because the earnings
+     * screen is a list of thirty of them and a driver opens it on a phone in a
+     * car park. Only the final stage is joined: an estimate is what somebody was
+     * shown, and this screen is about what was earned.
+     */
+    public static function driverEarnings(int $driverId, string $startUtc, string $endUtc): array
+    {
+        return self::query(
+            'SELECT o.id, o.delivered_at, o.route_miles,
+                    r.name AS restaurant_name,
+                    b.driver_base_cents, b.driver_mileage_cents, b.driver_guaranteed_cents,
+                    b.wait_pay_cents, b.tip_cents
+             FROM orders o
+             INNER JOIN restaurants r ON r.id = o.restaurant_id
+             INNER JOIN order_price_breakdown b ON b.order_id = o.id AND b.stage = ?
+             WHERE o.driver_id = ?
+               AND o.status = ?
+               AND o.delivered_at >= ?
+               AND o.delivered_at < ?
+             ORDER BY o.delivered_at DESC, o.id DESC',
+            [OrderPriceBreakdown::STAGE_FINAL, $driverId, self::STATUS_DELIVERED, $startUtc, $endUtc]
+        );
+    }
+
+    /**
+     * Does this drop-off need a photograph?
+     *
+     * Only when the customer asked for the food to be left. Somebody who opens
+     * the door has seen the driver and the driver has seen them; a bag on a
+     * doorstep has nobody to say it arrived, which is the whole reason the spec
+     * makes the photo mandatory in exactly this case and optional everywhere
+     * else.
+     *
+     * The pattern is deliberately loose. Customers write "leave at door", "leave
+     * it at the door" and "please just leave by the front door", and a driver
+     * whose phone insists on a photo they did not expect is a smaller problem
+     * than a doorstep drop with no proof.
+     */
+    public static function requiresDeliveryPhoto(array $order): bool
+    {
+        $instructions = trim((string) (self::addressSnapshot($order)['instructions'] ?? ''));
+
+        if ($instructions === '') {
+            return false;
+        }
+
+        return preg_match('/\bleave\b.{0,24}\bdoor\b/is', $instructions) === 1;
     }
 
     public static function withStatus(string $status): array

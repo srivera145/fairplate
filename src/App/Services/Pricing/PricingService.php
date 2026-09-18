@@ -323,6 +323,86 @@ final class PricingService
     }
 
     /**
+     * Every number on a driver's offer card, from the order's frozen snapshot.
+     *
+     * The card is a promise — the spec says guaranteed pay never drops after
+     * acceptance — so nothing on it may come from live settings or from a
+     * second measurement of the route. It is all recomputed here from the
+     * breakdown row the order was authorized against: the same snapshot, the
+     * same miles, the same formula, and therefore the same guarantee the
+     * customer was already charged for.
+     *
+     * The payout is the guarantee plus the tip, because tips go whole to the
+     * driver and a card that showed only the guarantee would understate the
+     * job. Wait pay is not in it: it has not been earned yet, so the card
+     * carries the rate instead and the delivery screen counts it up.
+     *
+     * @param array<string, mixed> $row an order_price_breakdown row
+     * @return array{
+     *     route_miles: float,
+     *     base_cents: int,
+     *     mileage_cents: int,
+     *     guaranteed_cents: int,
+     *     tip_cents: int,
+     *     payout_cents: int,
+     *     per_mile_cents: int,
+     *     wait_free_minutes: int,
+     *     wait_per_min_cents: int,
+     *     wait_cap_cents: int
+     * }
+     */
+    public function driverOffer(array $row): array
+    {
+        $snapshot = OrderPriceBreakdown::settingsSnapshot($row);
+
+        if ($snapshot === []) {
+            throw new PricingException('An offer card needs the order\'s settings snapshot.');
+        }
+
+        $miles = (float) ($snapshot['route_miles'] ?? 0.0);
+        $pay = $this->driverPay($miles, $snapshot);
+        $tip = (int) ($row['tip_cents'] ?? 0);
+        $payout = $pay['driver_guaranteed'] + $tip;
+
+        return [
+            'route_miles' => $miles,
+            'base_cents' => $pay['driver_base'],
+            'mileage_cents' => $pay['driver_mileage'],
+            'guaranteed_cents' => $pay['driver_guaranteed'],
+            'tip_cents' => $tip,
+            'payout_cents' => $payout,
+            'per_mile_cents' => $this->payPerMile($payout, $miles),
+            'wait_free_minutes' => (int) $snapshot['driver_wait_free_minutes'],
+            'wait_per_min_cents' => (int) $snapshot['driver_wait_per_min_cents'],
+            'wait_cap_cents' => (int) $snapshot['driver_wait_cap_cents'],
+        ];
+    }
+
+    /**
+     * What a payout works out at per mile, rounded to the nearest cent.
+     *
+     * A comparison figure rather than a charge — it is the number a driver uses
+     * to decide whether this run beats the one on the other app — but it is
+     * still money divided by something, so it is computed here on the same
+     * hundredths-of-a-mile grid mileage pay uses rather than as a float in a
+     * view.
+     *
+     * A zero-mile run answers with the whole payout. Dividing by nothing has no
+     * answer, and "$8.00 a mile" for a delivery across a car park would be a
+     * stranger one.
+     */
+    public function payPerMile(int $payCents, float $miles): int
+    {
+        $hundredths = (int) round(max(0.0, $miles) * self::MILE_SCALE);
+
+        if ($hundredths <= 0) {
+            return $payCents;
+        }
+
+        return intdiv(($payCents * self::MILE_SCALE * 2) + $hundredths, $hundredths * 2);
+    }
+
+    /**
      * min(max(0, minutes − free) × per_min, cap).
      *
      * Minutes are whole minutes from arrived_at_restaurant to picked_up.
