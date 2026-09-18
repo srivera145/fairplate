@@ -1,0 +1,11 @@
+/vendor
+/public_html/deck/
+public_html/uploads/*
+!public_html/uploads/.gitkeep
+.env
+storage/app/*
+!storage/app/.gitkeep
+storage/logs/*
+!storage/logs/.gitkeep
+.phpunit.cache/
+.DS_Store
