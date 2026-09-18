@@ -73,7 +73,7 @@ $brandHue = isset($organization['brand_hue']) ? (int) $organization['brand_hue']
                             <?php foreach ($members as $member): ?>
                             <tr>
                                 <td data-label="Email" class="fw-medium"><?= htmlspecialchars((string) $member['email']) ?></td>
-                                <td data-label="Role" class="uppercase"><?= htmlspecialchars((string) $member['role']) ?></td>
+                                <td data-label="Role" class="uppercase"><?= htmlspecialchars((string) $member['org_role']) ?></td>
                                 <td data-label="Status">
                                     <?php if ((int) ($member['is_super_admin'] ?? 0) === 1): ?>
                                     <span class="badge">Super admin</span>

@@ -31,7 +31,7 @@ class OrganizationService
             $statement->execute([$name, $slug]);
             $organizationId = (int) $connection->lastInsertId();
 
-            $updateUser = $connection->prepare('UPDATE users SET organization_id = ?, role = ? WHERE id = ?');
+            $updateUser = $connection->prepare('UPDATE users SET organization_id = ?, org_role = ? WHERE id = ?');
             $updateUser->execute([$organizationId, 'owner', $ownerUserId]);
 
             $connection->commit();
@@ -133,11 +133,11 @@ class OrganizationService
             }
 
             if (!$user) {
-                $insertUser = $connection->prepare('INSERT INTO users (email, organization_id, role, created_at) VALUES (?, ?, ?, NOW())');
+                $insertUser = $connection->prepare('INSERT INTO users (email, organization_id, org_role, created_at) VALUES (?, ?, ?, NOW())');
                 $insertUser->execute([$email, $invite['organization_id'], $invite['role']]);
                 $user = User::find((int) $connection->lastInsertId());
             } else {
-                $updateUser = $connection->prepare('UPDATE users SET organization_id = ?, role = ? WHERE id = ?');
+                $updateUser = $connection->prepare('UPDATE users SET organization_id = ?, org_role = ? WHERE id = ?');
                 $updateUser->execute([$invite['organization_id'], $invite['role'], $user['id']]);
                 $user = User::find((int) $user['id']);
             }

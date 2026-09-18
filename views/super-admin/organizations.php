@@ -111,7 +111,7 @@ $selectedMembers = $selectedMembers ?? [];
                             <?php foreach ($selectedMembers as $member): ?>
                             <tr>
                                 <td data-label="Email" class="fw-medium"><?= htmlspecialchars((string) $member['email']) ?></td>
-                                <td data-label="Role" class="uppercase"><?= htmlspecialchars((string) $member['role']) ?></td>
+                                <td data-label="Role" class="uppercase"><?= htmlspecialchars((string) $member['org_role']) ?></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>

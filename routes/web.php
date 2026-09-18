@@ -1,6 +1,11 @@
 <?php
 
+use Keel\App\Controllers\AdminController;
+use Keel\App\Controllers\AppController;
 use Keel\App\Controllers\AuthController;
+use Keel\App\Controllers\DriveController;
+use Keel\App\Controllers\KitchenController;
+use Keel\App\Controllers\PhoneAuthController;
 use Keel\App\Controllers\ActivityController;
 use Keel\App\Controllers\ApiFileController;
 use Keel\App\Controllers\ApiTokenController;
@@ -21,6 +26,10 @@ use Keel\App\Controllers\WelcomeController;
 use Keel\App\Middleware\AuthMiddleware;
 use Keel\App\Middleware\ApiAuthMiddleware;
 use Keel\App\Middleware\CsrfMiddleware;
+use Keel\App\Middleware\RequireAdmin;
+use Keel\App\Middleware\RequireCustomer;
+use Keel\App\Middleware\RequireDriver;
+use Keel\App\Middleware\RequireRestaurantStaff;
 use Keel\App\Middleware\RequireOrgAdminMiddleware;
 use Keel\App\Middleware\RequireOrganizationMiddleware;
 use Keel\App\Middleware\RequireSuperAdminMiddleware;
@@ -43,7 +52,13 @@ $router->group(['middleware' => [CsrfMiddleware::class]], function ($router) use
     $router->get('/docs/{slug}', [DocsController::class, 'show']);
 
     $router->group(['middleware' => [ThrottleMiddleware::class]], function ($router) {
-        $router->get('/login', [AuthController::class, 'showLogin'], ['sitemap' => true]);
+        // FairPlate signs in by phone OTP. Keel's email OTP and magic link stay
+        // available for the starter's own screens.
+        $router->get('/login', [PhoneAuthController::class, 'showLogin'], ['sitemap' => true]);
+        $router->post('/auth/phone/request', [PhoneAuthController::class, 'requestOtp']);
+        $router->post('/auth/phone/verify', [PhoneAuthController::class, 'verifyOtp']);
+
+        $router->get('/login/email', [AuthController::class, 'showLogin']);
         $router->post('/auth/otp/request', [AuthController::class, 'requestOtp']);
         $router->post('/auth/otp/verify', [AuthController::class, 'verifyOtp']);
         $router->post('/auth/magic/request', [AuthController::class, 'requestMagicLink']);
@@ -93,6 +108,24 @@ $router->group(['middleware' => [CsrfMiddleware::class]], function ($router) use
             $router->post('/files', [FileController::class, 'store']);
             $router->get('/files/{id}', [FileController::class, 'show']);
         });
+    });
+
+    // The four FairPlate areas. Every route here carries a role gate; a signed-in
+    // user of the wrong role gets a 403, not a redirect.
+    $router->group(['prefix' => '/app', 'middleware' => [RequireCustomer::class]], function ($router) {
+        $router->get('', [AppController::class, 'index']);
+    });
+
+    $router->group(['prefix' => '/kitchen', 'middleware' => [RequireRestaurantStaff::class]], function ($router) {
+        $router->get('', [KitchenController::class, 'index']);
+    });
+
+    $router->group(['prefix' => '/drive', 'middleware' => [RequireDriver::class]], function ($router) {
+        $router->get('', [DriveController::class, 'index']);
+    });
+
+    $router->group(['prefix' => '/admin', 'middleware' => [RequireAdmin::class]], function ($router) {
+        $router->get('', [AdminController::class, 'index']);
     });
 });
 

@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS addresses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    label VARCHAR(60) NOT NULL DEFAULT 'Home',
+    line1 VARCHAR(255) NOT NULL,
+    line2 VARCHAR(255) NULL,
+    city VARCHAR(120) NOT NULL,
+    state CHAR(2) NOT NULL,
+    zip VARCHAR(10) NOT NULL,
+    lat DECIMAL(10, 7) NULL,
+    lng DECIMAL(10, 7) NULL,
+    instructions TEXT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_addresses_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_addresses_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- @down
+DROP TABLE IF EXISTS addresses;

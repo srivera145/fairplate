@@ -12,7 +12,8 @@
     },
     "autoload": {
         "psr-4": {
-            "Keel\\": "src/"
+            "Keel\\": "src/",
+            "Keel\\Database\\": "database/"
         }
     },
     "autoload-dev": {

@@ -9,6 +9,7 @@ use Keel\Core\Auth;
 use Keel\Core\CapturedResponseException;
 use Keel\Core\Csrf;
 use Keel\Core\Database;
+use Keel\Core\Migration;
 use Keel\Core\Request;
 use Keel\Core\Response;
 use Keel\Core\Router;
@@ -61,6 +62,8 @@ abstract class TestCase extends PhpUnitTestCase
 
         $this->truncateApplicationTables();
         $this->clearMailLog();
+        $this->clearSmsLog();
+        \Keel\App\Services\Settings::flush();
 
         $_ENV['MULTI_TENANCY_ENABLED'] = 'false';
         $_SERVER['MULTI_TENANCY_ENABLED'] = 'false';
@@ -68,6 +71,8 @@ abstract class TestCase extends PhpUnitTestCase
         $_SERVER['AUTH_METHOD'] = 'both';
         $_ENV['MAIL_MAILER'] = 'log';
         $_SERVER['MAIL_MAILER'] = 'log';
+        $_ENV['SMS_DRIVER'] = 'log';
+        $_SERVER['SMS_DRIVER'] = 'log';
         $_ENV['STRIPE_WEBHOOK_SECRET'] = 'whsec_feature_test';
         $_SERVER['STRIPE_WEBHOOK_SECRET'] = 'whsec_feature_test';
     }
@@ -140,21 +145,26 @@ abstract class TestCase extends PhpUnitTestCase
     {
         $email = $overrides['email'] ?? 'user_' . bin2hex(random_bytes(4)) . '@example.test';
         $name = $overrides['name'] ?? null;
+        $phone = $overrides['phone'] ?? null;
         $organizationId = $overrides['organization_id'] ?? null;
-        $role = $overrides['role'] ?? 'owner';
+        // role is the FairPlate role; org_role is Keel's organization role.
+        $role = $overrides['role'] ?? 'customer';
+        $orgRole = $overrides['org_role'] ?? 'owner';
         $isSuperAdmin = (int) ($overrides['is_super_admin'] ?? 0);
         $stripeCustomerId = $overrides['stripe_customer_id'] ?? null;
         $themePreference = $overrides['theme_preference'] ?? null;
 
         $statement = Database::connection()->prepare(
-            'INSERT INTO users (name, email, organization_id, role, is_super_admin, stripe_customer_id, theme_preference, created_at)
-             VALUES (:name, :email, :organization_id, :role, :is_super_admin, :stripe_customer_id, :theme_preference, NOW())'
+            'INSERT INTO users (name, email, phone, organization_id, role, org_role, is_super_admin, stripe_customer_id, theme_preference, created_at)
+             VALUES (:name, :email, :phone, :organization_id, :role, :org_role, :is_super_admin, :stripe_customer_id, :theme_preference, NOW())'
         );
 
         $statement->bindValue(':name', $name);
         $statement->bindValue(':email', $email);
+        $statement->bindValue(':phone', $phone);
         $statement->bindValue(':organization_id', $organizationId, $organizationId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
         $statement->bindValue(':role', $role);
+        $statement->bindValue(':org_role', $orgRole);
         $statement->bindValue(':is_super_admin', $isSuperAdmin, PDO::PARAM_INT);
         $statement->bindValue(':stripe_customer_id', $stripeCustomerId);
         $statement->bindValue(':theme_preference', $themePreference);
@@ -209,6 +219,21 @@ abstract class TestCase extends PhpUnitTestCase
         $path = self::$basePath . '/storage/logs/mail.log';
 
         return file_exists($path) ? (string) file_get_contents($path) : '';
+    }
+
+    protected function latestSmsLog(): string
+    {
+        $path = self::$basePath . '/storage/logs/sms.log';
+
+        return file_exists($path) ? (string) file_get_contents($path) : '';
+    }
+
+    /**
+     * Signs in a user holding one of the four FairPlate roles.
+     */
+    protected function actingAsRole(string $role, array $overrides = []): array
+    {
+        return $this->actingAs(array_merge(['role' => $role], $overrides));
     }
 
     protected function dispatch(
@@ -366,7 +391,7 @@ abstract class TestCase extends PhpUnitTestCase
                 continue;
             }
 
-            $sql = trim((string) file_get_contents($file));
+            $sql = Migration::up((string) file_get_contents($file));
             if ($sql === '') {
                 continue;
             }
@@ -391,6 +416,31 @@ abstract class TestCase extends PhpUnitTestCase
             'organizations',
             'rate_limits',
             'subscriptions',
+            // FairPlate, child rows first so the order reads in dependency order
+            // even though foreign key checks are off around the truncate.
+            'order_item_options',
+            'order_items',
+            'order_price_breakdown',
+            'tip_adjustments',
+            'payouts',
+            'refunds',
+            'dispatch_offers',
+            'driver_locations',
+            'orders',
+            'specials',
+            'item_options',
+            'item_option_groups',
+            'menu_items',
+            'menu_categories',
+            'restaurant_monthly_statements',
+            'restaurant_fee_tiers',
+            'restaurant_staff',
+            'restaurants',
+            'delivery_zones',
+            'drivers',
+            'memberships',
+            'addresses',
+            'settings',
             'users',
         ];
 
@@ -407,6 +457,15 @@ abstract class TestCase extends PhpUnitTestCase
     private function clearMailLog(): void
     {
         $path = self::$basePath . '/storage/logs/mail.log';
+
+        if (file_exists($path)) {
+            file_put_contents($path, '');
+        }
+    }
+
+    private function clearSmsLog(): void
+    {
+        $path = self::$basePath . '/storage/logs/sms.log';
 
         if (file_exists($path)) {
             file_put_contents($path, '');

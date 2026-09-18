@@ -22,7 +22,7 @@ class RequireOrgAdminMiddleware implements Middleware
             Response::redirect('/onboarding/organization');
         }
 
-        if (!in_array((string) $user['role'], ['owner', 'admin'], true)) {
+        if (!in_array((string) $user['org_role'], ['owner', 'admin'], true)) {
             if ($request->wantsJson()) {
                 Response::json(['error' => 'Organization admin access is required.'], 403);
             }

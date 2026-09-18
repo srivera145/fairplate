@@ -17,7 +17,7 @@ class OrganizationInviteFlowFeatureTest extends TestCase
         $owner = $this->actingAs([
             'email' => 'owner@example.test',
             'organization_id' => (int) $organization['id'],
-            'role' => 'owner',
+            'org_role' => 'owner',
         ]);
 
         self::assertSame((int) $organization['id'], (int) $owner['organization_id']);
@@ -70,7 +70,7 @@ class OrganizationInviteFlowFeatureTest extends TestCase
 
         self::assertIsArray($acceptedUser);
         self::assertSame((int) $organization['id'], (int) $acceptedUser['organization_id']);
-        self::assertSame('member', (string) $acceptedUser['role']);
+        self::assertSame('member', (string) $acceptedUser['org_role']);
 
         $acceptedInvite = Database::connection()->query('SELECT accepted_at FROM organization_invites ORDER BY id DESC LIMIT 1')->fetch();
         self::assertIsArray($acceptedInvite);

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Dotenv\Dotenv;
+use Keel\Core\Migration;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -59,7 +60,7 @@ try {
             continue;
         }
 
-        $sql = trim((string) file_get_contents($migrationFile));
+        $sql = Migration::up((string) file_get_contents($migrationFile));
         if ($sql === '') {
             fwrite(STDOUT, "Skipping empty migration {$migrationName}\n");
             continue;

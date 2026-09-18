@@ -39,7 +39,7 @@ $brandHue = isset($organization['brand_hue']) ? (int) $organization['brand_hue']
                     </div>
                     <div class="stat">
                         <dt class="stat-label">Your role</dt>
-                        <dd><span class="badge badge-brand"><?= htmlspecialchars((string) ($user['role'] ?? '')) ?></span></dd>
+                        <dd><span class="badge badge-brand"><?= htmlspecialchars((string) ($user['org_role'] ?? '')) ?></span></dd>
                     </div>
                     <div class="stat">
                         <dt class="stat-label">Members</dt>
