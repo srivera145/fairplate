@@ -432,6 +432,43 @@ class Order extends Model
     }
 
     /**
+     * Food sales delivered in one America/New_York calendar month.
+     *
+     * The subtotal alone — menu prices, before tax, driver pay, tip or any fee.
+     * It is what the monthly statement multiplies by comparison_commission_pct
+     * to say what a commission marketplace would have taken, so it has to be
+     * the restaurant's own money and nothing else's.
+     *
+     * The join is left rather than inner so that a delivered order missing its
+     * final breakdown still counts as an order and contributes nothing to the
+     * sales figure. Understating the comparison is the safe direction; dropping
+     * the order would silently disagree with completedCountForPeriod, which is
+     * what the fee is billed on.
+     *
+     * @return array{orders: int, subtotal_cents: int}
+     */
+    public static function deliveredSalesForPeriod(int $restaurantId, string $period): array
+    {
+        [$startUtc, $endUtc] = self::periodBoundsUtc($period);
+
+        $row = self::queryOne(
+            'SELECT COUNT(*) AS orders, COALESCE(SUM(b.subtotal_cents), 0) AS subtotal_cents
+             FROM orders o
+             LEFT JOIN order_price_breakdown b ON b.order_id = o.id AND b.stage = ?
+             WHERE o.restaurant_id = ?
+               AND o.status = ?
+               AND o.delivered_at >= ?
+               AND o.delivered_at < ?',
+            [OrderPriceBreakdown::STAGE_FINAL, $restaurantId, self::STATUS_DELIVERED, $startUtc, $endUtc]
+        );
+
+        return [
+            'orders' => (int) ($row['orders'] ?? 0),
+            'subtotal_cents' => (int) ($row['subtotal_cents'] ?? 0),
+        ];
+    }
+
+    /**
      * The UTC half-open bounds of a YYYY-MM billing period in America/New_York.
      *
      * @return array{0: string, 1: string}

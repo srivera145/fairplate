@@ -3,6 +3,7 @@
 namespace Keel\App\Controllers\Webhooks;
 
 use Keel\App\Models\WebhookEvent;
+use Keel\App\Services\Billing\BillingWebhooks;
 use Keel\App\Services\BillingService;
 use Keel\App\Services\CheckoutService;
 use Keel\App\Services\MembershipService;
@@ -69,6 +70,22 @@ class StripeController extends Controller
         'account.updated' => 'accountUpdated',
         // A transfer pulled back, by us or by a dispute.
         'transfer.reversed' => 'transferReversed',
+    ];
+
+    /**
+     * The two ways a restaurant's monthly fee can settle.
+     *
+     * Kept apart from PAYMENT_EVENTS because they are about a different pot of
+     * money entirely: those four are an order's money, these two are the flat
+     * monthly fee, and the only thing they share is the endpoint. An invoice
+     * that is not FairPlate's own falls through to BillingService, which owns
+     * Keel's subscriptions.
+     *
+     * @var array<string, string>
+     */
+    private const INVOICE_EVENTS = [
+        'invoice.paid' => 'invoicePaid',
+        'invoice.payment_failed' => 'invoicePaymentFailed',
     ];
 
     public function handle(Request $request): never
@@ -138,6 +155,17 @@ class StripeController extends Controller
             return;
         }
 
+        if (isset(self::INVOICE_EVENTS[$type])) {
+            $invoice = $this->asArray($object);
+
+            if ($this->isRestaurantFeeInvoice($invoice)) {
+                $method = self::INVOICE_EVENTS[$type];
+                (new BillingWebhooks())->$method($invoice);
+
+                return;
+            }
+        }
+
         if (in_array($type, [
             'customer.subscription.created',
             'customer.subscription.updated',
@@ -175,6 +203,24 @@ class StripeController extends Controller
         }
 
         (new BillingService())->syncSubscriptionFromWebhook($event);
+    }
+
+    /**
+     * Is this invoice one of FairPlate's monthly restaurant fees?
+     *
+     * Two systems share this Stripe account, and both raise invoices. The
+     * metadata the billing job writes is what tells them apart; an invoice
+     * without it is Keel's own and goes to BillingService. Asking the question
+     * from the event rather than from the database means a Keel invoice never
+     * costs a lookup in a FairPlate table.
+     *
+     * @param array<string, mixed> $invoice
+     */
+    private function isRestaurantFeeInvoice(array $invoice): bool
+    {
+        $metadata = is_array($invoice['metadata'] ?? null) ? $invoice['metadata'] : [];
+
+        return (int) ($metadata['restaurant_id'] ?? 0) > 0 && trim((string) ($metadata['period'] ?? '')) !== '';
     }
 
     /**

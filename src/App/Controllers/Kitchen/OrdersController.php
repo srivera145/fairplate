@@ -6,10 +6,8 @@ use Keel\App\Models\MenuItem;
 use Keel\App\Models\Order;
 use Keel\App\Models\OrderItem;
 use Keel\App\Models\Restaurant;
-use Keel\App\Models\RestaurantFeeTier;
 use Keel\App\Services\OrderLifecycle;
 use Keel\App\Services\OrderLifecycleException;
-use Keel\App\Services\Pricing\Money;
 use Keel\Core\Request;
 use Keel\Core\View;
 
@@ -128,38 +126,6 @@ class OrdersController extends KitchenController
     }
 
     /**
-     * This month's orders, tier and fee.
-     *
-     * The numbers are real where phase 2 already provides them — the completed
-     * count and the tier table are both live — and the projected fee is
-     * arithmetic on those two. What is not here is anything from a statement,
-     * because statements are phase 7; the panel says so rather than showing a
-     * confident zero.
-     */
-    public function month(Request $request): void
-    {
-        $restaurant = $this->requireRestaurant();
-        $restaurantId = (int) $restaurant['id'];
-
-        $period = (new \DateTimeImmutable('now', new \DateTimeZone('America/New_York')))->format('Y-m');
-        $completed = Order::completedCountForPeriod($restaurantId, $period);
-        $tiers = RestaurantFeeTier::all();
-        $tier = RestaurantFeeTier::forOrderCount($completed);
-
-        $this->view('kitchen.month', array_merge(
-            $this->shell($restaurant, 'month', 'This month'),
-            [
-                'period' => $period,
-                'completed' => $completed,
-                'tier' => $tier,
-                'tiers' => $tiers,
-                'nextTier' => $this->nextTier($tiers, $tier),
-                'projectedFeeCents' => $this->projectedFeeCents($restaurant, $tier),
-            ]
-        ));
-    }
-
-    /**
      * @return array{columns: array, signature: string, newOrderIds: list<int>, restaurant: array}
      */
     private function boardData(?array $restaurant): array
@@ -240,55 +206,6 @@ class OrdersController extends KitchenController
         }
 
         return (string) ob_get_clean();
-    }
-
-    /**
-     * The tier above the one a restaurant is in, so the panel can show what the
-     * next threshold is. Null at the top tier.
-     */
-    private function nextTier(array $tiers, ?array $tier): ?array
-    {
-        if ($tier === null) {
-            return $tiers[0] ?? null;
-        }
-
-        foreach ($tiers as $candidate) {
-            if ((int) $candidate['min_orders'] > (int) $tier['min_orders']) {
-                return $candidate;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * The tier fee with this restaurant's founding discount taken off.
-     *
-     * Null on the custom tier until an admin has set a figure, because the spec
-     * is explicit that nothing is invoiced there until someone decides what it
-     * is, and a made-up number on this panel would be a promise.
-     */
-    private function projectedFeeCents(array $restaurant, ?array $tier): ?int
-    {
-        if ($tier === null) {
-            return null;
-        }
-
-        if ((int) ($tier['is_custom'] ?? 0) === 1) {
-            $custom = $restaurant['custom_fee_cents'] ?? null;
-
-            if ($custom === null) {
-                return null;
-            }
-
-            $feeCents = (int) $custom;
-        } else {
-            $feeCents = (int) $tier['fee_cents'];
-        }
-
-        $discount = (string) ($restaurant['founding_discount_pct'] ?? '0');
-
-        return $feeCents - Money::percentOf($feeCents, $discount);
     }
 
     /**

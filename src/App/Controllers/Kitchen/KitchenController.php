@@ -3,9 +3,11 @@
 namespace Keel\App\Controllers\Kitchen;
 
 use Keel\App\Models\Restaurant;
+use Keel\App\Models\RestaurantMonthlyStatement;
 use Keel\App\Models\RestaurantStaff;
 use Keel\App\Models\User;
 use Keel\App\Policies\RestaurantPolicy;
+use Keel\App\Services\Billing\TierBillingService;
 use Keel\Core\Auth;
 use Keel\Core\Controller;
 use Keel\Core\Response;
@@ -183,7 +185,39 @@ abstract class KitchenController extends Controller
             'restaurant' => $restaurant,
             'restaurants' => $this->restaurants(),
             'flash' => $this->takeFlash(),
+            'billingAlert' => $this->billingAlert($restaurant),
         ];
+    }
+
+    /**
+     * A monthly fee that did not collect, for the banner in the chrome.
+     *
+     * It lives in the shell rather than on the billing page because the billing
+     * page is the one screen a kitchen never opens: the board is where they are
+     * all day, and a failed charge that only announced itself somewhere else
+     * would go unread until the second one failed too.
+     *
+     * A banner and nothing more. The spec is explicit that a failed payment
+     * never pauses a restaurant, so this returns something to render and
+     * touches nothing that decides whether orders may be taken.
+     *
+     * @return array{month: string, period: string}|null
+     */
+    private function billingAlert(?array $restaurant): ?array
+    {
+        if ($restaurant === null) {
+            return null;
+        }
+
+        $statement = RestaurantMonthlyStatement::unpaidFor((int) $restaurant['id']);
+
+        if ($statement === null) {
+            return null;
+        }
+
+        $period = (string) $statement['period'];
+
+        return ['period' => $period, 'month' => TierBillingService::periodName($period)];
     }
 
     /**

@@ -16,6 +16,7 @@ use Keel\App\Controllers\Drive\HomeController as DriveHomeController;
 use Keel\App\Controllers\Drive\LocationController as DriveLocationController;
 use Keel\App\Controllers\Drive\OffersController as DriveOffersController;
 use Keel\App\Controllers\Drive\OnboardingController as DriveOnboardingController;
+use Keel\App\Controllers\Kitchen\BillingController as KitchenBillingController;
 use Keel\App\Controllers\Kitchen\ConnectController as KitchenConnectController;
 use Keel\App\Controllers\Kitchen\HoursController as KitchenHoursController;
 use Keel\App\Controllers\Kitchen\MenuController as KitchenMenuController;
@@ -181,7 +182,15 @@ $router->group(['middleware' => [CsrfMiddleware::class]], function ($router) use
         $router->post('/orders/{id}/accept', [KitchenOrdersController::class, 'accept']);
         $router->post('/orders/{id}/reject', [KitchenOrdersController::class, 'reject']);
         $router->post('/orders/{id}/ready', [KitchenOrdersController::class, 'ready']);
-        $router->get('/month', [KitchenOrdersController::class, 'month']);
+        // Billing. /month is where the projection panel lived before there was
+        // anything to bill, and a tablet that bookmarked it should land on the
+        // page that replaced it.
+        $router->get('/month', [KitchenBillingController::class, 'month']);
+        $router->get('/billing', [KitchenBillingController::class, 'index']);
+        $router->get('/statements', [KitchenBillingController::class, 'statements']);
+        $router->post('/billing/method/start', [KitchenBillingController::class, 'startPaymentMethod']);
+        $router->get('/billing/method', [KitchenBillingController::class, 'paymentMethodForm']);
+        $router->get('/billing/method/complete', [KitchenBillingController::class, 'completePaymentMethod']);
 
         $router->get('/onboarding', [KitchenOnboardingController::class, 'show']);
         $router->post('/onboarding', [KitchenOnboardingController::class, 'save']);

@@ -21,7 +21,7 @@ $navItems = [
     'specials' => ['label' => 'Specials', 'href' => '/kitchen/specials', 'icon' => 'tag'],
     'hours' => ['label' => 'Hours', 'href' => '/kitchen/hours', 'icon' => 'clock'],
     'staff' => ['label' => 'Staff', 'href' => '/kitchen/staff', 'icon' => 'users'],
-    'month' => ['label' => 'This month', 'href' => '/kitchen/month', 'icon' => 'chart'],
+    'billing' => ['label' => 'Billing', 'href' => '/kitchen/billing', 'icon' => 'chart'],
     'onboarding' => ['label' => 'Profile', 'href' => '/kitchen/onboarding', 'icon' => 'home'],
 ];
 
@@ -29,6 +29,7 @@ $restaurant = $restaurant ?? null;
 $restaurants = $restaurants ?? [];
 $activeNav = $activeNav ?? 'orders';
 $flash = $flash ?? null;
+$billingAlert = $billingAlert ?? null;
 $isPaused = $restaurant !== null && Restaurant::isPaused($restaurant);
 $escape = static fn (?string $value): string => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 
@@ -95,6 +96,31 @@ $kitchenPath = (string) (parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/kitche
         <?php if ($flash !== null): ?>
         <div class="alert alert-<?= $escape((string) $flash['tone']) ?>" role="status">
             <p class="alert-body"><?= $escape((string) $flash['message']) ?></p>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($billingAlert !== null): ?>
+        <?php
+        /**
+         * A monthly fee that did not collect.
+         *
+         * On every kitchen screen, because the one place it would be missed is
+         * the board, which is the only screen most staff ever open. It says
+         * outright that orders are unaffected: the spec forbids pausing a
+         * restaurant over this, and a banner that left the question open would
+         * have the same effect on a manager as actually pausing them.
+         */
+        ?>
+        <div class="alert alert-warn" role="status">
+            <div class="alert-body bar wrap gap-3">
+                <span>
+                    <strong>We could not charge your monthly fee for
+                    <?= $escape((string) $billingAlert['month']) ?>.</strong>
+                    Your orders are not affected &mdash; nothing is paused and nothing is on hold.
+                    Update the card or bank account and we will try again.
+                </span>
+                <a href="/kitchen/billing" class="btn btn-primary push">Fix payment method</a>
+            </div>
         </div>
         <?php endif; ?>
 
